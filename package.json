@@ -1,7 +1,9 @@
 {
   "name": "cb-mapui",
   "dependencies": {
+    "buffer":"^6.0.3",
     "csv-parser": "^3.0.0",
+    "http":"^0.0.1-security",
     "ol": "^6.6.1"
   },
   "devDependencies": {
@@ -14,7 +16,6 @@
   },
   "description": "A MapUI Client for CB-Tumblebug (display multi-cloud infra service)",
   "version": "0.4.1",
-  "main": "index.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cloud-barista/cb-mapui.git"
