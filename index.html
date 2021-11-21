@@ -51,28 +51,36 @@
   </table>
   <br>
   &nbsp;&nbsp;MCIS Control:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <input type=button value="Refine" onClick="controlMCIS('refine');" style="text-align:center; width:120px">
+  <input type=button value="Create" onClick="createMcis();" style="text-align:center; width:120px">
   <input type=button value="Suspend" onClick="controlMCIS('suspend');" style="text-align:center; width:120px">
   <input type=button value="Resume" onClick="controlMCIS('resume');" style="text-align:center; width:120px">
   <input type=button value="Reboot" onClick="controlMCIS('reboot');" style="text-align:center; width:120px">
+  <input type=button value="Refine" onClick="controlMCIS('refine');" style="text-align:center; width:120px">  
   <input type=button value="Terminate" onClick="controlMCIS('terminate');" style="text-align:center; width:120px">
   <input type=button value="Delete" onClick="deleteMCIS();" style="text-align:center; width:120px">
   &nbsp;&nbsp;View:&nbsp;&nbsp;
-  <input type=button value="Clear map" onClick="window.location.reload()" style="text-align:center; width:120px">
+  <input type=button value="Clear request" onClick="clearCoordinates();" style="text-align:center; width:120px">
+  <input type=button value="Clear map" onClick="clearMap()" style="text-align:center; width:120px">
   <br>
-  <br>
-  <input type=button value="Clear all" onClick="clearCoordinates();" style="text-align:center; width:180px">
-  <br>
+  <table>
+    <tr>
+    <td rowspan="1" colspan="3" style="vertical-align: top; width: 30%;">
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      <textarea id = "message" rows = "3" cols = "117" name = "description" readonly ></textarea>
+    </td>
+    </tr>
+  </table>
+
   <!-- 
   Latitude: <input type=text id=latitude name=latitude  value="" style="text-align:center; width:120px"> 
   Longitude: <input type=text id=longitude name=longitude  value="" style="text-align:center; width:120px"> 
   <input type=button value="Get Recommended Spec" onClick="getRecommendedSpec();" style="text-align:center; width:180px">
   <br>
   Recommended spec: <input type=text id=recommendedSpec name=recommendedSpec  value="" style="text-align:center; width:180px">
-  -->
   <div id="latLonInputPairArea"></div>
-  <input type=button value="Create MCIS" onClick="createMcis();" style="text-align:center; width:180px">
-
+  -->
   <div id="map" class="map">
     <div id="popup"></div>
   </div>

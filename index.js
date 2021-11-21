@@ -53,6 +53,8 @@ var mcisGeo = new Array();
 var ipMap = [];
 var geoMap = [];
 
+var messageTextArea = document.getElementById("message");
+
 //for (i = 0; i < n; ++i) {
 //  mcisGeo[i] = new Array();
 //}
@@ -76,8 +78,30 @@ var map = new Map({
   //projection: 'EPSG:4326'
 });
 
+// fucntion for clear map.
+function clearMap() {
+  var hostname = document.getElementById("hostname").value;
+  var port = document.getElementById("port").value;
+  var username = document.getElementById("username").value;
+  var password = document.getElementById("password").value;
+  var namespace = document.getElementById("namespace").value;
+  var refresh = document.getElementById("refreshInterval").value;
+  
+  window.location.reload()
+
+  // fill elements with data before reload
+  document.getElementById("hostname").value = String(hostname);
+  document.getElementById("port").value = port;
+  document.getElementById("username").value = username;
+  document.getElementById("password").value = password;
+  document.getElementById("namespace").value = namespace;
+  document.getElementById("refreshInterval").value = refresh;
+}
+window.clearMap = clearMap;
+
 function clearCoordinates() {
-  document.getElementById("latLonInputPairArea").innerHTML = '';
+  //document.getElementById("latLonInputPairArea").innerHTML = '';
+  messageTextArea.value = '';
   latLonInputPairIdx = 0;
   recommendedSpecList = [];
 }
@@ -88,8 +112,13 @@ function writeLatLonInputPair(idx, lat, lon) {
   var latf = lat.toFixed(4);
   var lonf = lon.toFixed(4);
 
-  document.getElementById("latLonInputPairArea").innerHTML += 
+  //document.getElementById("latLonInputPairArea").innerHTML += 
   `VM ${idx+1}: (${latf}, ${lonf}) / `
+  if (idx == 0) {
+    messageTextArea.value = ``
+  }
+  messageTextArea.value += ` - [VM-${idx+1}]  Location:  ${latf}, ${lonf}    |    Best Spec: `
+  messageTextArea.scrollTop = messageTextArea.scrollHeight;
 }
 
 var latLonInputPairIdx = 0;
@@ -859,6 +888,8 @@ var createMcisReqVmTmplt = {
 }
 
 function createMcis() {
+  messageTextArea.value = " Creating MCIS ...";
+
   var hostname = document.getElementById("hostname").value;
   var port = document.getElementById("port").value;
 
@@ -877,7 +908,7 @@ function createMcis() {
   createMcisReq.name = "mcis-" + `${randomString}`;
   createMcisReq.vm = recommendedSpecList;
 
-  var jsonBody = JSON.stringify(createMcisReq);
+  var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
 
   axios({
     method: 'post',
@@ -892,6 +923,8 @@ function createMcis() {
   })
   .then((res)=>{
     console.log(res); // for debug
+    messageTextArea.value = JSON.stringify(res.data);
+    updateMcisList();
   });
 }
 window.createMcis = createMcis;
@@ -960,7 +993,8 @@ function getRecommendedSpec(idx, latitude, longitude) {
     
   })
   .then((res)=>{
-    document.getElementById("latLonInputPairArea").innerHTML += `${res.data[0].id}<br>`;
+    //document.getElementById("latLonInputPairArea").innerHTML += `${res.data[0].id}<br>`;
+    messageTextArea.value += `${res.data[0].id}\n`
 
     var createMcisReqVm = $.extend( {}, createMcisReqVmTmplt );
     createMcisReqVm.commonSpec = res.data[0].id;
@@ -970,6 +1004,8 @@ function getRecommendedSpec(idx, latitude, longitude) {
 window.getRecommendedSpec = getRecommendedSpec;
 
 function deleteMCIS() {
+  messageTextArea.value = "Deleting MCIS";
+
   var hostname = document.getElementById("hostname").value;
   var port = document.getElementById("port").value;
 
@@ -993,6 +1029,9 @@ function deleteMCIS() {
   })
   .then((res)=>{
     console.log(res); // for debug
+    messageTextArea.value = JSON.stringify(res.data);
+    updateMcisList();
+    //map.render();
   });
 }
 window.deleteMCIS = deleteMCIS;
@@ -1009,6 +1048,7 @@ function controlMCIS(action) {
       console.log(`The actions ${action} is not supported. Supported actions: refine, suspend, resume, reboot, terminate.`);
       return
   }
+  messageTextArea.value = "MCIS " +action;
 
   var hostname = document.getElementById("hostname").value;
   var port = document.getElementById("port").value;
@@ -1041,6 +1081,7 @@ function controlMCIS(action) {
       var obj = JSON.parse(serverData);
       if ( obj.message != null ){
         console.log(obj.message);
+        messageTextArea.value = obj.message;
       }
     });
   }
