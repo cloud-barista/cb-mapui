@@ -892,7 +892,7 @@ function createMcis() {
   var randomString = Math.random().toString(36).substr(2,5);
   
   var createMcisReq = createMcisReqTmplt;
-  createMcisReq.name = "mcis-" + `${randomString}`;
+  createMcisReq.name = "mc-" + `${randomString}`;
   createMcisReq.vm = recommendedSpecList;
 
   var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
@@ -1120,6 +1120,25 @@ function updateMcisList() {
   });
 }
 window.updateMcisList = updateMcisList;
+
+
+// function for sleep
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// fucntion for deployApp (mock)
+function deployApp() {
+
+  messageTextArea.value = " Deploying Video Conference Server ...";
+  console.log(messageTextArea.value); 
+
+  console.log("before");
+  sleep(5000).then(() => messageTextArea.value = " [Complete]\n Deployed Video Conference Server !\n Access to https://happy.cloud-barista.org");
+
+}
+window.deployApp = deployApp;
+
 
 window.onload = function() {
   updateMcisList();
