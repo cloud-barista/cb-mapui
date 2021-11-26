@@ -25,12 +25,13 @@
     }
 
     .range-slider {
-      width: 200px;
+  /* .range-slider width & svg-line-x2 should be same */
+      width: 150px;
+      height: 50px;
   /* Match this to the SVG's x2 value */
       margin: auto;
       text-align: center;
       position: relative;
-      height: 6em;
     }
     .range-slider svg,
     .range-slider input[type="range"] {
@@ -46,6 +47,11 @@
     input[type="number"]:invalid,
     input[type="number"]:out-of-range {
         border: 2px solid #ff6347;
+    }
+    /* webkit-inner-spin-button section is for enable arrow show */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button {  
+      opacity: 1;
     }
     input[type="range"] {
         -webkit-appearance: none;
@@ -78,9 +84,9 @@
         position: relative;
         box-shadow: 0px 0px 0px #000;
         border: 1px solid #2497e3;
-        height: 18px;
-        width: 18px;
-        border-radius: 25px;
+        height: 15px;
+        width: 15px;
+        border-radius: 5px;
         background: #a1d0ff;
         cursor: pointer;
         -webkit-appearance: none;
@@ -101,9 +107,9 @@
         position: relative;
         box-shadow: 0px 0px 0px #000;
         border: 1px solid #2497e3;
-        height: 18px;
-        width: 18px;
-        border-radius: 25px;
+        height: 15px;
+        width: 15px;
+        border-radius: 5px;
         background: #a1d0ff;
         cursor: pointer;
     }
@@ -148,6 +154,7 @@
         <td>TB Port:&nbsp;<input type=text id=port name=port value="1323" style="text-align:center; width:95%"> </td>
         <td>Username:&nbsp;<input type=text id=username name=username value="default" style="text-align:center; width:95%"></td>
         <td>Password:&nbsp;<input type=password id=password name=password value="default" style="text-align:center; width:95%"></td>
+        <td>Total CSP regions:&nbsp;<input type="checkbox" id="displayOn" name="displayOn" onClick="displayCSPListOn();" value="on"><input type=button value="Show CSP" onClick="getConnection();" style="text-align:center; width:95%"></td>
         <td>Display Interval:
           <select id="refreshInterval" name="refreshInterval" style="text-align:center; width:50px">
             <option value="1">1</option>
@@ -171,9 +178,10 @@
           <!-- <option value="mcis01">mcis01</option> -->
           </select> 
         </td>
-        <td><input type=button value="Reload" onClick="updateMcisList();" style="text-align:center; width:90px"></td>
         <td>&nbsp;</td>
-        <td>Total CSP regions:&nbsp;<input type="checkbox" id="displayOn" onClick="displayCSPListOn();" name="displayOn" value="on"><input type=button value="Show CSP" onClick="getConnection();" style="text-align:center; width:95%"></td>
+        <td><input type=button value="Status" onClick="statusMCIS();" style="text-align:center; width:95%"></td>
+        <td><input type=button value="Load info list" onClick="updateMcisList();" style="text-align:center; width:95%"></td>
+        <td><input type=button value="Release Resource" onClick="releaseResources();" style="text-align:center; width:95%"></td>
       </tr>
 
 
@@ -182,48 +190,82 @@
         <td><input type=button value="Suspend" onClick="controlMCIS('suspend');" style="text-align:center; width:95%"></td>
         <td><input type=button value="Resume" onClick="controlMCIS('resume');" style="text-align:center; width:95%"></td>
         <td><input type=button value="Reboot" onClick="controlMCIS('reboot');" style="text-align:center; width:95%"></td>
-
         <td><input type=button value="Refine" onClick="controlMCIS('refine');" style="text-align:center; width:95%"></td>
         <td><input type=button value="Terminate" onClick="controlMCIS('terminate');" style="text-align:center; width:95%"></td>
         <td><input type=button value="Delete" onClick="deleteMCIS();" style="text-align:center; width:95%"></td>
-        <td><input type=button value="Release Resources" onClick="releaseResources();" style="text-align:center; width:95%"></td>
       </tr> 
-      <tr> <td>&nbsp; </td> </tr> 
+
+      <tr>
+        <td>&nbsp;&nbsp;&nbsp;&nbsp;</td>
+      </tr> 
+
 
       <tr>
         <td>&nbsp;&nbsp;MCIS provisioning&nbsp;&nbsp;</td>
-        <td><input type=button value="Create" onClick="createMcis();" style="text-align:center; width:95%"></td>
-        <td><input type=button value="Clear request" onClick="clearCircle('clearText');" style="text-align:center; width:95%"></td>
+        <td><input id="createMcis" type=button value="Create" onClick="createMcis();" style="text-align:center; width:95%"></td>
+        <td>
+          <input type=button value="Clear request" onClick="clearCircle('clearText');" style="text-align:center; width:95%">
+        </td>
+
+
+        <td rowspan="1" colspan="1" >
+          Provisioning Policy:
+          <select id="recommendPolicy" name="recommendPolicy" style="text-align:center; width:95%">
+            <option value="location" selected="selected">Location-based</option>
+            <option value="price">Cost-based</option>
+            <option value="performance">Performance-based</option>
+          </select> 
+        </td>
+
+        <td rowspan="1" colspan="1" >
+          OS Image Type:
+          <select id="osImage" name="osImage" style="text-align:center; width:95%">
+            <option value="ubuntu18.04" selected="selected">Ubuntu 18.04</option>
+            <option value="CentOS8.5.2111">CentOS 8.5.2111</option>
+            <option value="WIP">WIP</option>
+          </select> 
+        </td>
+
         <!-- <td><input type="range" value="1" min="1" max="200" onchange='range_change(this)'><input type='text' id='myvalue'></td> -->
         <td>
           <div class="range-slider">
-            <span># vCPU <input type="number" value="1" min="0" max="128" step="1">~<input type="number" value="2" min="0" max="128" step="1"></span>
-            <input value="1" min="0" max="128" step="1" type="range" id='minVCPU'>
-            <input value="2" min="0" max="128" step="1" type="range" id='maxVCPU'>
+            <span>CPU
+              <input type="number" value="2" min="1" max="448" step="1" style="text-align:center; width:50px">
+              ~<input type="number" value="8" min="1" max="448" step="1" style="text-align:center; width:50px">
+            </span>
+            <input value="2" min="1" max="104" step="1" type="range" id='minVCPU'>
+            <input value="8" min="1" max="104" step="1" type="range" id='maxVCPU'>
             <svg width="100%" height="24">
-                <line x1="4" y1="0" x2="200" y2="0" stroke="#444" stroke-width="12" stroke-dasharray="1 28"></line>
-            </svg>
-          </div>
-        <!-- </td>
-        <td width=20px></td>
-        <td> -->
-          <div class="range-slider">
-            <span>RAM <input type="number" value="1" min="0" max="128" step="1">~<input type="number" value="2" min="0" max="128" step="1">GB</span>
-            <input value="1" min="0" max="128" step="1" type="range" id='minRAM'>
-            <input value="2" min="0" max="128" step="1" type="range" id='maxRAM'>
-            <svg width="100%" height="24">
-                <line x1="4" y1="0" x2="200" y2="0" stroke="#444" stroke-width="12" stroke-dasharray="1 28"></line>
+                <!-- .range-slider width & x2 should be same -->
+                <line x1="4" y1="0" x2="150" y2="0" stroke="#444" stroke-width="12" stroke-dasharray="1 28"></line>
             </svg>
           </div>
         </td>
-        <td></td>
+        <!-- <td width=20px></td> -->
+
+        <td>
+          <div class="range-slider">
+            <span>RAM
+              <input type="number" value="1.5" min="0.5" max="12288" step="0.5" style="text-align:center; width:50px">
+              ~<input type="number" value="8" min="0.5" max="12288" step="0.5" style="text-align:center; width:50px">
+            </span>
+            <input value="1.5" min="0.5" max="128" step="1" type="range" id='minRAM'>
+            <input value="8" min="0.5" max="128" step="1" type="range" id='maxRAM'>
+            <svg width="100%" height="24">
+                <!-- .range-slider width & x2 should be same -->
+                <line x1="4" y1="0" x2="150" y2="0" stroke="#444" stroke-width="12" stroke-dasharray="1 28"></line>
+            </svg>
+          </div>
+        </td>
+
 
       </tr> 
 
 
       <tr>
         <td>&nbsp;&nbsp;Deploy application&nbsp;&nbsp;</td>
-        <td><input type=button value="Jitsi" onClick="deployApp()" style="text-align:center; width:95%"></td>
+        <td><input type=button id="gameWestward" value="Game: Westward" onClick="deployAppGame()" style="text-align:center; width:95%"></td>
+        <td><input type=button value="Video Conf: Jitsi" onClick="deployApp()" style="text-align:center; width:95%"></td>
       </tr> 
 
     </tbody>
@@ -233,9 +275,16 @@
     <tr>
       <td>&nbsp;</td>
       <td rowspan="1" colspan="3" >
-        <textarea id = "message" rows = "3" cols = "110" name = "description" readonly ></textarea>
+        <textarea id = "message" rows = "4" cols = "80" name = "message" readonly ></textarea>
+      </td>
+      <td rowspan="1" colspan="3" >
+        &nbsp;&nbsp;Display recommendation table:&nbsp;<input type="checkbox" id="tableOn" name="tableOn" onClick="displayTableOn();" value="on">
+        <textarea id = "message2" rows = "3" cols = "40" name = "message2" readonly ></textarea>
       </td>
     </tr>
+  </table>
+
+  <table id="detailTable" border="1" style="text-align:center; width:1111px">
   </table>
 
   <!-- 

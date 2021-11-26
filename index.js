@@ -54,7 +54,11 @@ var ipMap = [];
 var geoMap = [];
 
 var messageTextArea = document.getElementById("message");
+var messageDetailTextArea = document.getElementById("message2");
 var cspListDisplayEnabled = document.getElementById("displayOn");
+var tableDisplayEnabled = document.getElementById("tableOn");
+var table = document.getElementById('detailTable');
+var recommendPolicy = document.getElementById('recommendPolicy');
 
 //for (i = 0; i < n; ++i) {
 //  mcisGeo[i] = new Array();
@@ -81,6 +85,8 @@ var map = new Map({
 
 // fucntion for clear map.
 function clearMap() {
+  table.innerHTML = "";
+  messageDetailTextArea.value = '';
   messageTextArea.value = '';
   geometries = [];
   map.render();
@@ -96,6 +102,8 @@ function clearCircle(option) {
   recommendedSpecList = [];
   cspPointsCircle = [];
   geoCspPointsCircle = [];
+  messageDetailTextArea.value = '';
+  table.innerHTML = "";
 }
 window.clearCircle = clearCircle;
 
@@ -109,7 +117,7 @@ function writeLatLonInputPair(idx, lat, lon) {
   if (idx == 0) {
     messageTextArea.value = `[Started MCIS configuration]\n`
   }
-  messageTextArea.value += ` - [VM-${idx+1}]  Location:  ${latf}, ${lonf}    |    Best Spec: `
+  messageTextArea.value += ` - [VM-${idx+1}]  Location:  ${latf}, ${lonf}\t\t| Best Spec: `
   messageTextArea.scrollTop = messageTextArea.scrollHeight;
 }
 
@@ -137,12 +145,16 @@ var cspPointsAws = [];
 var cspPointsGcp = [];
 var cspPointsAlibaba = [];
 var cspPointsCloudit = [];
+var cspPointsIBM = [];
+var cspPointsTencent = [];
 var cspPointsCircle = [];
 var geoCspPointsAzure = new Array();
 var geoCspPointsAws = new Array();
 var geoCspPointsGcp = new Array();
 var geoCspPointsAlibaba = new Array();
 var geoCspPointsCloudit = new Array();
+var geoCspPointsIBM = new Array();
+var geoCspPointsTencent = new Array();
 var geoCspPointsCircle = new Array();
 
 function displayCSPListOn() {
@@ -155,6 +167,9 @@ function displayCSPListOn() {
           .on("data", (chunk) => cloudLocation.push(chunk))
           .on("end", () => {
             console.log(cloudLocation);
+
+            messageTextArea.value = "[Complete] Display Known Cloud Regions: " + cloudLocation.length + "\n";
+
             for (var i = 0; i < cloudLocation.length; ++i) {
               // title: CloudType, ID,        DisplayName, Latitude, Longitude
               // ex:    azure,     eastasia,  East Asia,   22.2670,  114.1880
@@ -174,6 +189,12 @@ function displayCSPListOn() {
               if (cloudLocation[i]["CloudType"] == "cloudit") {
                 cspPointsCloudit.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
               }
+              if (cloudLocation[i]["CloudType"] == "ibm") {
+                cspPointsIBM.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
+              }
+              if (cloudLocation[i]["CloudType"] == "tencent") {
+                cspPointsTencent.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
+              }
             }
             
           });
@@ -185,15 +206,23 @@ function displayCSPListOn() {
     cspPointsGcp = [];
     cspPointsAlibaba = [];
     cspPointsCloudit = [];
+    cspPointsIBM = [];
+    cspPointsTencent = [];
   }
   geoCspPointsAzure[0] = new MultiPoint([cspPointsAzure]);
   geoCspPointsAws[0] = new MultiPoint([cspPointsAws]);
   geoCspPointsGcp[0] = new MultiPoint([cspPointsGcp]);
   geoCspPointsAlibaba[0] = new MultiPoint([cspPointsAlibaba]);
   geoCspPointsCloudit[0] = new MultiPoint([cspPointsCloudit]);
+  geoCspPointsIBM[0] = new MultiPoint([cspPointsIBM]);
+  geoCspPointsTencent[0] = new MultiPoint([cspPointsTencent]);
 }
 window.displayCSPListOn = displayCSPListOn;
 
+function displayTableOn() {
+  table.innerHTML = "";
+}
+window.displayTableOn = displayTableOn;
 
 
 var mcisGeo2 = [];
@@ -585,6 +614,50 @@ var iconStyleCloudit = new Style({
   }))
 });
 
+var vectorSource7 = new Vector({ projection: 'EPSG:4326' }); //새로운 벡터 생성
+var iconFeature7 = new Feature(pnt);
+iconFeature7.set('style', createStyle('img/ibm.png'));
+iconFeature7.set('index', '001');
+vectorSource7.addFeature(iconFeature7);
+var iconLayer7 = new VectorLayer({
+  style: function (feature) {
+    return feature.get('style');
+  },
+  source: vectorSource7
+})
+
+var iconStyleIBM = new Style({
+  image: new Icon(({
+    crossOrigin: 'anonymous',
+    src: 'img/ibm.png',
+    opacity: 1.0,
+    scale: 0.9
+  }))
+});
+
+
+var vectorSource8 = new Vector({ projection: 'EPSG:4326' }); //새로운 벡터 생성
+var iconFeature8 = new Feature(pnt);
+iconFeature8.set('style', createStyle('img/tencent.png'));
+iconFeature8.set('index', '001');
+vectorSource8.addFeature(iconFeature8);
+var iconLayer8 = new VectorLayer({
+  style: function (feature) {
+    return feature.get('style');
+  },
+  source: vectorSource8
+})
+
+var iconStyleTencent = new Style({
+  image: new Icon(({
+    crossOrigin: 'anonymous',
+    src: 'img/tencent.png',
+    opacity: 1.0,
+    scale: 0.9
+  }))
+});
+
+
 
 // Icon layers
 map.addLayer(iconLayer1);
@@ -593,6 +666,8 @@ map.addLayer(iconLayer3);
 map.addLayer(iconLayer4);
 map.addLayer(iconLayer5);
 map.addLayer(iconLayer6);
+map.addLayer(iconLayer7);
+map.addLayer(iconLayer8);
 map.addLayer(iconLayer);
 
 
@@ -1048,12 +1123,18 @@ function getConnection() {
 
       if ( obj.connectionconfig != null ){
 
+        messageTextArea.value = "[Complete] Number of Registered Cloud Regions: " + obj.connectionconfig.length + "\n";
+
             for (var i = 0; i < obj.connectionconfig.length; ++i) {
               // title: CloudType, ID,        DisplayName, Latitude, Longitude
               // ex:    azure,     eastasia,  East Asia,   22.2670,  114.1880
               providerName = obj.connectionconfig[i].ProviderName.toLowerCase()
               longitude = obj.connectionconfig[i].Location.longitude
               latitude = obj.connectionconfig[i].Location.latitude
+              briefAddr = obj.connectionconfig[i].Location.briefAddr
+              nativeRegion = obj.connectionconfig[i].Location.nativeRegion
+
+              messageTextArea.value += ("["+i+"] "+ obj.connectionconfig[i].ProviderName+"("+nativeRegion+")" + "\t\t\t" + "Location: " +longitude +"|"+ latitude + " ("+briefAddr+")\n");
 
               if (providerName == "azure") {
                 cspPointsAzure.push([longitude, latitude]);
@@ -1070,7 +1151,12 @@ function getConnection() {
               if (providerName == "cloudit") {
                 cspPointsCloudit.push([longitude, latitude]);
               }
-
+              if (providerName == "ibm") {
+                cspPointsIBM.push([longitude, latitude]);
+              }
+              if (providerName == "tencent") {
+                cspPointsTencent.push([longitude, latitude]);
+              }
             }
 
             geoCspPointsAzure[0] = new MultiPoint([cspPointsAzure]);
@@ -1078,6 +1164,9 @@ function getConnection() {
             geoCspPointsGcp[0] = new MultiPoint([cspPointsGcp]);
             geoCspPointsAlibaba[0] = new MultiPoint([cspPointsAlibaba]);
             geoCspPointsCloudit[0] = new MultiPoint([cspPointsCloudit]);
+            geoCspPointsIBM[0] = new MultiPoint([cspPointsIBM]);
+            geoCspPointsTencent[0] = new MultiPoint([cspPointsTencent]);
+            
     }
     });
   }
@@ -1110,45 +1199,53 @@ var createMcisReqVmTmplt = {
 }
 
 function createMcis() {
-  messageTextArea.value = " Creating MCIS ...";
+  if (recommendedSpecList.length != 0) {
 
-  var hostname = document.getElementById("hostname").value;
-  var port = document.getElementById("port").value;
-
-  var username = document.getElementById("username").value;
-  var password = document.getElementById("password").value;
-  var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
-
-  var namespace = document.getElementById("namespace").value;
-  // var mcisid = document.getElementById("mcisid").value;
-
-  var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcisDynamic`
-
-  var randomString = Math.random().toString(36).substr(2,5);
+    messageTextArea.value = " Creating MCIS ...";
+    document.getElementById("createMcis").style.color = "#FF0000";
   
-  var createMcisReq = createMcisReqTmplt;
-  createMcisReq.name = "mc-" + `${randomString}`;
-  createMcisReq.vm = recommendedSpecList;
-
-  var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
-
-  axios({
-    method: 'post',
-    url: url,
-    headers: { 'Content-Type': 'application/json' },
-    data: jsonBody,
-    auth: {
-      username: `${username}`,
-      password: `${password}`
-    }
+    var hostname = document.getElementById("hostname").value;
+    var port = document.getElementById("port").value;
+  
+    var username = document.getElementById("username").value;
+    var password = document.getElementById("password").value;
+    var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
+  
+    var namespace = document.getElementById("namespace").value;
+    // var mcisid = document.getElementById("mcisid").value;
+  
+    var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcisDynamic`
+  
+    var randomString = Math.random().toString(36).substr(2,5);
     
-  })
-  .then((res)=>{
-    console.log(res); // for debug
-    messageTextArea.value = JSON.stringify(res.data, null, 2);
-    updateMcisList();
-    clearCircle("none")
-  });
+    var createMcisReq = createMcisReqTmplt;
+    createMcisReq.name = "mc-" + `${randomString}`;
+    createMcisReq.vm = recommendedSpecList;
+   
+    var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
+  
+    axios({
+      method: 'post',
+      url: url,
+      headers: { 'Content-Type': 'application/json' },
+      data: jsonBody,
+      auth: {
+        username: `${username}`,
+        password: `${password}`
+      }
+      
+    })
+    .then((res)=>{
+      console.log(res); // for debug
+      document.getElementById("createMcis").style.color = "#000000";
+      messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
+      updateMcisList();
+      clearCircle("none")
+    });
+  } else {
+    messageTextArea.value = " To create a MCIS, VMs should be configured!\n Click the Map to add a config for VM request.";
+  }
+  
 }
 window.createMcis = createMcis;
 
@@ -1175,7 +1272,7 @@ function getRecommendedSpec(idx, latitude, longitude) {
   
   var url = `http://${hostname}:${port}/tumblebug/ns/common/testRecommendVm`
 
-  var struct = {
+  var struct01 = {
     filter: {
       policy: [
         {
@@ -1206,7 +1303,7 @@ function getRecommendedSpec(idx, latitude, longitude) {
         }
       ]
     },
-    limit: "5",
+    limit: "10",
     priority: {
       policy: [
         {
@@ -1219,13 +1316,102 @@ function getRecommendedSpec(idx, latitude, longitude) {
               ]
             }
           ],
-          weight: "0.3"
+          weight: "1.0"
         }
       ]
     }
   }
 
-  var jsonBody = JSON.stringify(struct);
+  var struct02 = {
+    filter: {
+      policy: [
+        {
+          condition: [
+            {
+              operand: `${minVCPU}`,
+              operator: ">="
+            },
+            {
+              operand: `${maxVCPU}`,
+              operator: "<="
+            }
+          ],
+          metric: "cpu",
+        },
+        {
+          condition: [
+            {
+              operand: `${minRAM}`,
+              operator: ">="
+            },
+            {
+              operand: `${maxRAM}`,
+              operator: "<="
+            }
+          ],
+          metric: "memory",
+        }
+      ]
+    },
+    limit: "10",
+    priority: {
+      policy: [
+        {
+          metric: "cost",
+          weight: "1.0"
+        }
+      ]
+    }
+  }
+
+  var struct03 = {
+    filter: {
+      policy: [
+        {
+          condition: [
+            {
+              operand: `${minVCPU}`,
+              operator: ">="
+            },
+            {
+              operand: `${maxVCPU}`,
+              operator: "<="
+            }
+          ],
+          metric: "cpu",
+        },
+        {
+          condition: [
+            {
+              operand: `${minRAM}`,
+              operator: ">="
+            },
+            {
+              operand: `${maxRAM}`,
+              operator: "<="
+            }
+          ],
+          metric: "memory",
+        }
+      ]
+    },
+    limit: "10",
+    priority: {
+      policy: [
+        {
+          metric: "performance",
+          weight: "1.0"
+        }
+      ]
+    }
+  }
+
+  var jsonBody = JSON.stringify(struct01);
+  if (recommendPolicy.value == "price"){
+    jsonBody = JSON.stringify(struct02);
+  } else if (recommendPolicy.value == "performance"){
+    jsonBody = JSON.stringify(struct03);
+  }
 
   axios({
     method: 'post',
@@ -1239,12 +1425,21 @@ function getRecommendedSpec(idx, latitude, longitude) {
     
   })
   .then((res)=>{
+    console.log(res); // for debug
     //document.getElementById("latLonInputPairArea").innerHTML += `${res.data[0].id}<br>`;
     messageTextArea.value += `${res.data[0].id}\n`
 
     var createMcisReqVm = $.extend( {}, createMcisReqVmTmplt );
     createMcisReqVm.commonSpec = res.data[0].id;
     recommendedSpecList.push(createMcisReqVm);
+
+    messageDetailTextArea.value = JSON.stringify(res.data, null, 2);
+
+    messageDetailTextArea.scrollTop = messageDetailTextArea.scrollHeight;
+
+    if (tableDisplayEnabled.checked){
+      jsonToTable(JSON.stringify(res.data));
+    }
 
     addRegionMarker(res.data[0].id);
   });
@@ -1359,7 +1554,7 @@ function controlMCIS(action) {
       console.log(`The actions ${action} is not supported. Supported actions: refine, suspend, resume, reboot, terminate.`);
       return
   }
-  messageTextArea.value = "MCIS " +action;
+  messageTextArea.value = "[MCIS " +action +"]";
 
   var hostname = document.getElementById("hostname").value;
   var port = document.getElementById("port").value;
@@ -1403,6 +1598,54 @@ function controlMCIS(action) {
 }
 window.controlMCIS = controlMCIS;
 
+
+function statusMCIS() {
+
+  messageTextArea.value = "[Get MCIS status]";
+
+  var hostname = document.getElementById("hostname").value;
+  var port = document.getElementById("port").value;
+
+  var username = document.getElementById("username").value;
+  var password = document.getElementById("password").value;
+  var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
+
+  var namespace = document.getElementById("namespace").value;
+  var mcisid = document.getElementById("mcisid").value;
+
+  var http = require('http');
+  var mcisOptions = {
+    hostname: hostname,
+    port: port,
+    path: '/tumblebug/ns/' + namespace + '/mcis/' + mcisid + '?option=status',
+    method: 'GET',
+    headers: {
+      "Authorization" : auth
+    }
+  };
+
+  function handleResponse(response) {
+    var serverData = '';
+    response.on('data', function (chunk) {
+      serverData += chunk;
+    });
+    response.on('end', function () {
+      console.log("[Status MCIS]");
+      var obj = JSON.parse(serverData);
+      if ( obj.status != null ){
+        console.log(obj.status);
+        messageTextArea.value = "[Status MCIS]\n" + JSON.stringify(obj.status, null, 2);
+      }
+    });
+  }
+
+  http.request(mcisOptions, function (response) {
+    handleResponse(response);
+  }).end();
+}
+window.statusMCIS = statusMCIS;
+
+
 function deleteMCIS() {
   messageTextArea.value = "Deleting MCIS";
 
@@ -1438,7 +1681,7 @@ function deleteMCIS() {
 window.deleteMCIS = deleteMCIS;
 
 function releaseResources() {
-  messageTextArea.value = "[Remove all associated default resources]";
+  messageTextArea.value = " [Removing all associated default resources ...]";
 
   var hostname = document.getElementById("hostname").value;
   var port = document.getElementById("port").value;
@@ -1517,6 +1760,7 @@ function sleep(ms) {
 }
 
 // fucntion for deployApp (mock)
+
 function deployApp() {
 
   messageTextArea.value = " Deploying Video Conference Server ...";
@@ -1527,6 +1771,70 @@ function deployApp() {
 
 }
 window.deployApp = deployApp;
+
+
+
+function deployAppGame() {
+
+
+  var mcisid = document.getElementById("mcisid").value;
+
+  if (mcisid) {
+
+    messageTextArea.value = " Deploying Demo Game Server ...";
+    document.getElementById("gameWestward").style.color = "#FF0000";
+  
+    var hostname = document.getElementById("hostname").value;
+    var port = document.getElementById("port").value;
+    var username = document.getElementById("username").value;
+    var password = document.getElementById("password").value;
+    var namespace = document.getElementById("namespace").value;
+  
+    var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/cmd/mcis/${mcisid}`
+
+    var cmd = "wget https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/setgame.sh -O ~/setgame.sh; chmod +x ~/setgame.sh; sudo ~/setgame.sh"
+    var commandReqTmp = {
+      command: `${cmd}`
+    }
+   
+    var jsonBody = JSON.stringify(commandReqTmp, undefined, 4);
+  
+    axios({
+      method: 'post',
+      url: url,
+      headers: { 'Content-Type': 'application/json' },
+      data: jsonBody,
+      auth: {
+        username: `${username}`,
+        password: `${password}`
+      }
+      
+    })
+    .then((res)=>{
+      console.log(res); // for debug
+      document.getElementById("gameWestward").style.color = "#000000";
+      messageTextArea.value = "[Complete: Deployed App]\n" + JSON.stringify(res.data, null, 2);
+    });
+  } else {
+    messageTextArea.value = " MCIS ID is not assigned";
+  }
+  
+}
+window.deployAppGame = deployAppGame;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 window.onload = function() {
@@ -1562,6 +1870,10 @@ function drawMCIS(event) {
     vectorContext.drawGeometry(geoCspPointsAlibaba[0]);
     vectorContext.setStyle(iconStyleCloudit);
     vectorContext.drawGeometry(geoCspPointsCloudit[0]);
+    vectorContext.setStyle(iconStyleIBM);
+    vectorContext.drawGeometry(geoCspPointsIBM[0]);
+    vectorContext.setStyle(iconStyleTencent);
+    vectorContext.drawGeometry(geoCspPointsTencent[0]);
 
   }
 
@@ -1664,3 +1976,80 @@ tileLayer.on('postrender', function (event) {
 
 
 
+// Section for general tools
+
+function jsonToTable( jsonText ) {
+  let arr00 = new Array();
+	let arr01 = new Array();
+	let arr02 = new Array();
+	let arr03 = new Array();
+  let arr04 = new Array();
+  let arr05 = new Array();
+	
+	let json = JSON.parse(jsonText);
+
+	for(i=0; i<json.length; i++){ 
+    arr00[i] = json[i].connectionName;
+		arr01[i] = json[i].cspSpecName;
+		arr02[i] = json[i].numvCPU;
+		arr03[i] = json[i].memGiB;
+    arr04[i] = json[i].costPerHour;
+		arr05[i] = json[i].evaluationScore09;
+	}
+  table.innerHTML = "";
+
+  // Header
+  let tr0 = document.createElement("tr");
+
+  let th0 = document.createElement("th");			  
+  th0.appendChild(document.createTextNode("   cspRegion"));
+  let th1 = document.createElement("th");			  
+  th1.appendChild(document.createTextNode("   cspSpecName"));
+  let th2 = document.createElement("th");			 
+  th2.appendChild(document.createTextNode("   numvCPU"));
+  let th3 = document.createElement("th");			 
+  th3.appendChild(document.createTextNode("   memGiB"));
+  let th4 = document.createElement("th");			 
+  th4.appendChild(document.createTextNode("   costPerHour"));
+  let th5 = document.createElement("th");			 
+  th5.appendChild(document.createTextNode("   evaluationScore"));
+
+  tr0.appendChild(th0);
+  tr0.appendChild(th1);
+  tr0.appendChild(th2);
+  tr0.appendChild(th3);
+  tr0.appendChild(th4);
+  tr0.appendChild(th5);
+  table.appendChild(tr0);
+
+	for(i=0; i<arr01.length; i++){
+		let tr = document.createElement("tr");
+
+    let td0 = document.createElement("td");			  
+    td0.appendChild(document.createTextNode(" "+arr00[i] + ""));
+		
+		let td1 = document.createElement("td");			  
+		td1.appendChild(document.createTextNode(" "+arr01[i] + ""));
+		
+		let td2 = document.createElement("td");			 
+		td2.appendChild(document.createTextNode(" "+arr02[i] + ""));
+		
+		let td3 = document.createElement("td");			 
+		td3.appendChild(document.createTextNode(" "+arr03[i]+ ""));
+
+		let td4 = document.createElement("td");			 
+		td4.appendChild(document.createTextNode(" "+arr04[i] + ""));
+		
+		let td5 = document.createElement("td");			 
+		td5.appendChild(document.createTextNode(" "+arr05[i]+ ""));
+
+    tr.appendChild(td0);
+		tr.appendChild(td1);
+		tr.appendChild(td2);
+		tr.appendChild(td3);
+		tr.appendChild(td4);
+		tr.appendChild(td5);
+
+		table.appendChild(tr);
+	}
+}
