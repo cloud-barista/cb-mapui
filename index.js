@@ -456,12 +456,12 @@ var polygonFeature = new Feature(
   new Polygon([[[10, -3], [-5, 2], [-1, 1]]])
 );
 
-var pointFeature = new Feature({
-  geometry: new Point([10, -3]),
-  name: '보이지 않는 꿈의 섬'
+// var pointFeature = new Feature({
+//   geometry: new Point([10, -3]),
+//   name: '보이지 않는 꿈의 섬'
 
-}
-);
+// }
+// );
 
 function createStyle(src) {
   return new Style({
@@ -480,10 +480,8 @@ var pnt = new Point([-68, -50]);
 import Vector from 'ol/source/Vector.js';
 var vectorSource = new Vector({ projection: 'EPSG:4326' }); //새로운 벡터 생성
 var iconFeature = new Feature(pnt);
-
 iconFeature.set('style', createStyle('img/icon.png'));
 iconFeature.set('index', '001');
-
 vectorSource.addFeature(iconFeature);
 var iconLayer = new VectorLayer({
   style: function (feature) {
@@ -491,26 +489,6 @@ var iconLayer = new VectorLayer({
   },
   source: vectorSource
 })
-
-var iconStyle01 = new Style({
-  image: new Icon(({
-    //anchor: [0.5, 0.5],
-    crossOrigin: 'anonymous',
-    src: 'img/icon2.png',
-    opacity: 0.60,
-    imgSize: [50, 50]
-  }))
-});
-
-var iconStyle02 = new Style({
-  image: new Icon(({
-    anchor: [0.5, 46],
-    anchorXUnits: 'fraction',
-    anchorYUnits: 'pixels',
-    opacity: 0.95,
-    src: 'img/icon2.png'
-  }))
-});
 
 var iconStyle03 = new Style({
   image: new Icon(({
@@ -525,8 +503,28 @@ var iconStyle03 = new Style({
   }))
 });
 
+// var iconStyle01 = new Style({
+//   image: new Icon(({
+//     //anchor: [0.5, 0.5],
+//     crossOrigin: 'anonymous',
+//     src: 'img/icon2.png',
+//     opacity: 0.60,
+//     imgSize: [50, 50]
+//   }))
+// });
+
+// var iconStyle02 = new Style({
+//   image: new Icon(({
+//     anchor: [0.5, 46],
+//     anchorXUnits: 'fraction',
+//     anchorYUnits: 'pixels',
+//     opacity: 0.95,
+//     src: 'img/icon2.png'
+//   }))
+// });
 
 // CSP location Circle icon style
+// pnt = new Point([-48, -50]);
 
 var vectorSource1 = new Vector({ projection: 'EPSG:4326' }); //새로운 벡터 생성
 var iconFeature1 = new Feature(pnt);
@@ -724,27 +722,27 @@ map.addLayer(iconLayer);
 
 
 
-var vectorLayer = new VectorLayer({
-  source: new VectorSource({
-    features: [pointFeature]
-  }),
-  style: new Style({
-    image: new Icon({
-      anchor: [0.5, 46],
-      anchorXUnits: 'fraction',
-      anchorYUnits: 'pixels',
-      opacity: 0.95,
-      src: 'img/icon.png'
-    }),
-    stroke: new Stroke({
-      width: 4,
-      color: [255, 0, 0, 1]
-    }),
-    fill: new Fill({
-      color: [0, 0, 255, 0.6]
-    })
-  })
-});
+// var vectorLayer = new VectorLayer({
+//   source: new VectorSource({
+//     features: [pointFeature]
+//   }),
+//   style: new Style({
+//     image: new Icon({
+//       anchor: [0.5, 46],
+//       anchorXUnits: 'fraction',
+//       anchorYUnits: 'pixels',
+//       opacity: 0.95,
+//       src: 'img/icon.png'
+//     }),
+//     // stroke: new Stroke({
+//     //   width: 4,
+//     //   color: [255, 0, 0, 1]
+//     // }),
+//     // fill: new Fill({
+//     //   color: [0, 0, 255, 0.6]
+//     // })
+//   })
+// });
 
 
 var imageStyle = new Style({
@@ -1311,7 +1309,7 @@ function getRecommendedSpec(idx, latitude, longitude) {
   var maxRAM = document.getElementById("maxRAM").value;
   
   
-  var url = `http://${hostname}:${port}/tumblebug/ns/common/mcisRecommendVm`
+  var url = `http://${hostname}:${port}/tumblebug/mcisRecommendVm`
 
   var struct01 = {
     filter: {
@@ -1542,7 +1540,7 @@ function addRegionMarker(spec) {
   var username = document.getElementById("username").value;
   var password = document.getElementById("password").value;
 
-  var url = `http://${hostname}:${port}/tumblebug/ns/common/resources/spec/${spec}`
+  var url = `http://${hostname}:${port}/tumblebug/ns/system-purpose-common-ns/resources/spec/${spec}`
 
   axios({
     method: 'get',
@@ -2010,9 +2008,9 @@ function drawMCIS(event) {
   var theta = 2 * Math.PI * frameState.time / omegaTheta;
 
 
-    // Draw CSP location first
+  // Draw CSP location first
   if (Array.isArray(geoCspPointsCloudit) && geoCspPointsCloudit.length ) {
-      // array exists and is not empty
+    // array exists and is not empty
 
     vectorContext.setStyle(iconStyleAzure);
     vectorContext.drawGeometry(geoCspPointsAzure[0]);
@@ -2038,6 +2036,7 @@ function drawMCIS(event) {
     vectorContext.drawGeometry(geoCspPointsCircle[0]);
   }
 
+
   //console.log( geometries );
   for (i = geometries.length -1; i >= 0; --i) {
 
@@ -2050,13 +2049,13 @@ function drawMCIS(event) {
           src: 'data/icon.png'
         }),
         */
-      image: new Icon(({
-        //anchor: [0.5, 0.5],
-        crossOrigin: 'anonymous',
-        src: 'img/icon2.png',
-        opacity: 0.60,
-        imgSize: [50, 50]
-      })),
+      // image: new Icon(({
+      //   //anchor: [0.5, 0.5],
+      //   crossOrigin: 'anonymous',
+      //   src: 'img/icon2.png',
+      //   opacity: 0.60,
+      //   imgSize: [50, 50]
+      // })),
 
       stroke: new Stroke({
         width: 1,
