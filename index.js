@@ -164,7 +164,7 @@ function writeLatLonInputPair(idx, lat, lon) {
   if (idx == 0) {
     messageTextArea.value = `[Started MCIS configuration]\n`
   }
-  messageTextArea.value += ` - [VM-${idx+1}]  Location:  ${latf}, ${lonf}\t\t| Best Spec: `
+  messageTextArea.value += `\n - [VM-${idx+1}]  Location:  ${latf}, ${lonf}\t\t| Best Spec: `
   messageTextArea.scrollTop = messageTextArea.scrollHeight;
 }
 
@@ -1258,9 +1258,6 @@ var createMcisReqVmTmplt = {
 function createMcis() {
   if (recommendedSpecList.length != 0) {
 
-    messageTextArea.value = " Creating MCIS ...";
-    document.getElementById("createMcis").style.color = "#FF0000";
-  
     var hostname = hostnameElement.value;
     var port = portElement.value;
   
@@ -1280,29 +1277,34 @@ function createMcis() {
     createMcisReq.vm = recommendedSpecList;
    
     var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
-  
-    axios({
-      method: 'post',
-      url: url,
-      headers: { 'Content-Type': 'application/json' },
-      data: jsonBody,
-      auth: {
-        username: `${username}`,
-        password: `${password}`
-      }
-      
-    })
-    .then((res)=>{
-      console.log(res); // for debug
-      document.getElementById("createMcis").style.color = "#000000";
-      messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
-      updateMcisList();
-      clearCircle("none")
-    });
+
+ 
+    if (confirm("[Confirm the following configuration for MCIS]\n"+ jsonBody)){
+      messageTextArea.value = " Creating MCIS ...";
+      document.getElementById("createMcis").style.color = "#FF0000";
+    
+      axios({
+        method: 'post',
+        url: url,
+        headers: { 'Content-Type': 'application/json' },
+        data: jsonBody,
+        auth: {
+          username: `${username}`,
+          password: `${password}`
+        }
+        
+      })
+      .then((res)=>{
+        console.log(res); // for debug
+        document.getElementById("createMcis").style.color = "#000000";
+        messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
+        updateMcisList();
+        clearCircle("none")
+      });
+    } 
   } else {
     messageTextArea.value = " To create a MCIS, VMs should be configured!\n Click the Map to add a config for VM request.";
   }
-  
 }
 window.createMcis = createMcis;
 
@@ -1484,23 +1486,33 @@ function getRecommendedSpec(idx, latitude, longitude) {
   .then((res)=>{
     console.log(res); // for debug
     //document.getElementById("latLonInputPairArea").innerHTML += `${res.data[0].id}<br>`;
-    messageTextArea.value += `${res.data[0].id}\n`
-
-    var createMcisReqVm = $.extend( {}, createMcisReqVmTmplt );
-    createMcisReqVm.commonSpec = res.data[0].id;
-    var myvmGroupSize = prompt('vmGroupSize? (1 ~ 10)', '1');
-    createMcisReqVm.vmGroupSize = myvmGroupSize;
-    recommendedSpecList.push(createMcisReqVm);
 
     messageDetailTextArea.value = JSON.stringify(res.data, null, 2);
-
-    messageDetailTextArea.scrollTop = messageDetailTextArea.scrollHeight;
+    // messageDetailTextArea.scrollTop = messageDetailTextArea.scrollHeight;
 
     if (tableDisplayEnabled.checked){
       jsonToTable(JSON.stringify(res.data));
     }
 
-    addRegionMarker(res.data[0].id);
+       
+    var createMcisReqVm = $.extend( {}, createMcisReqVmTmplt );
+    createMcisReqVm.commonSpec = res.data[0].id;
+    
+    var myvmGroupSize = prompt('Please input the number of VMs to create (1 ~ 10)\n\n[Selected spec: ' + createMcisReqVm.commonSpec + ']\n[Detail]\n' + JSON.stringify(res.data[0], null, 2)+'\n', '1');
+    createMcisReqVm.vmGroupSize = myvmGroupSize;
+
+    if (createMcisReqVm.vmGroupSize != null) {
+      if (isNaN(createMcisReqVm.vmGroupSize)) {
+        createMcisReqVm.vmGroupSize = 1
+      }
+      messageTextArea.value += `${createMcisReqVm.commonSpec}` + `\t(${createMcisReqVm.vmGroupSize})`
+      recommendedSpecList.push(createMcisReqVm);
+      addRegionMarker(res.data[0].id);
+    } else {
+      messageTextArea.value = messageTextArea.value.replace(/\n.*$/, '')
+      latLonInputPairIdx--;
+      //cspPointsCircle.pop();
+    }
   });
 }
 window.getRecommendedSpec = getRecommendedSpec;
