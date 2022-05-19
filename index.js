@@ -66,6 +66,10 @@ import MousePosition from 'ol/control/MousePosition';
 import {createStringXY} from 'ol/coordinate';
 import {defaults as defaultControls} from 'ol/control';
 
+// ES6 Modules or TypeScript
+import Swal from 'sweetalert2'
+const Swal = require('sweetalert2')
+
 const axios = require('axios')
 
 //var express = require('express');
@@ -1027,13 +1031,33 @@ for (i = 0; i < coordinatesFromX.length; ++i) {
 }
 */
 
-
 }
 
 
 var refreshInterval = 5;
 setTimeout(() => console.log(getMcis()), refreshInterval*1000);
 //setTimeout(() => console.log(getConnection()), refreshInterval*1000);
+
+
+function infoAlert(message) {
+  Swal.fire({
+    // position: 'top-end',
+    icon: 'info',
+    title: message,
+    showConfirmButton: false,
+    timer: 1500
+  })
+}
+
+function errorAlert(message) {
+  Swal.fire({
+    // position: 'bottom-start',
+    icon: 'error',
+    title: message,
+    showConfirmButton: false,
+    timer: 2000
+  })
+}
 
 
 function getMcis() {
@@ -1144,6 +1168,31 @@ function getMcis() {
 
 // Get list of cloud connections
 function getConnection() {
+
+
+  let timerInterval
+  Swal.fire({
+    title: 'Show registered Cloud Regions to the Map',
+    html: 'closed in <b></b> milliseconds.',
+    timer: 2000,
+    timerProgressBar: true,
+    position: 'top-end',
+    didOpen: () => {
+      Swal.showLoading()
+      const b = Swal.getHtmlContainer().querySelector('b')
+      timerInterval = setInterval(() => {
+        b.textContent = Swal.getTimerLeft()
+      }, 100)
+    },
+    willClose: () => {
+      clearInterval(timerInterval)
+    }
+  }).then((result) => {
+    /* Read more about handling dismissals below */
+    if (result.dismiss === Swal.DismissReason.timer) {
+      console.log('I was closed by the timer')
+    }
+  })  
   
   var hostname = hostnameElement.value;
   var port = portElement.value;
@@ -1222,8 +1271,10 @@ function getConnection() {
             geoCspPointsCloudit[0] = new MultiPoint([cspPointsCloudit]);
             geoCspPointsIBM[0] = new MultiPoint([cspPointsIBM]);
             geoCspPointsTencent[0] = new MultiPoint([cspPointsTencent]);
-            
-    }
+        
+            infoAlert('Registered Cloud Regions: '+obj.connectionconfig.length)
+  
+      } 
     });
   }
   http.request(mcisOptions, function (response) {
@@ -1627,6 +1678,8 @@ function controlMCIS(action) {
   }
   messageTextArea.value = "[MCIS " +action +"]";
 
+  infoAlert('MCIS control:['+ action + ']');
+
   var hostname = hostnameElement.value;
   var port = portElement.value;
 
@@ -1665,7 +1718,7 @@ function controlMCIS(action) {
 
   http.request(mcisOptions, function (response) {
     handleResponse(response);
-  }).end();
+  })
 }
 window.controlMCIS = controlMCIS;
 
