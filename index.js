@@ -1142,7 +1142,11 @@ function getMcis() {
           //makePoly5( [-15.712891, 47.09024], [-25.712891, 12.09024], [25.712891, 32.09024],[-25.712891, 31.09024], [-15.712891, 47.09024]);
 
           mcisName[cnt] = "[" + item.name + "]"
-          mcisStatus[cnt] = item.status
+          if (item.targetAction == "None" || item.targetAction == "") {
+            mcisStatus[cnt] = item.status  
+          } else {
+            mcisStatus[cnt] = item.targetAction + '-> ' + item.status 
+          }
 
           console.log("item.status is" + item.status);
 
@@ -1682,43 +1686,32 @@ function controlMCIS(action) {
 
   var hostname = hostnameElement.value;
   var port = portElement.value;
-
   var username = document.getElementById("username").value;
   var password = document.getElementById("password").value;
-  var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
-
   var namespace = document.getElementById("namespace").value;
   var mcisid = document.getElementById("mcisid").value;
 
-  // var http = require('http');
-  var mcisOptions = {
-    hostname: hostname,
-    port: port,
-    path: '/tumblebug/ns/' + namespace + '/control/mcis/' + mcisid + '?action=' + action,
-    method: 'GET',
-    headers: {
-      "Authorization" : auth
+  var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/control/mcis/${mcisid}?action=${action}`
+
+  console.log('MCIS control:['+ action + ']');
+
+  axios({
+    method: 'get',
+    url: url,
+    auth: {
+      username: `${username}`,
+      password: `${password}`
     }
-  };
-
-  function handleResponse(response) {
-    var serverData = '';
-    response.on('data', function (chunk) {
-      serverData += chunk;
-    });
-    response.on('end', function () {
-      console.log("[Control MCIS]");
-      var obj = JSON.parse(serverData);
-      if ( obj.message != null ){
-        console.log(obj.message);
-        messageTextArea.value = obj.message;
-      }
-    });
-  }
-
-  http.request(mcisOptions, function (response) {
-    handleResponse(response);
+    
   })
+  .then((res)=>{
+    
+    if ( res.data != null ){
+      console.log(res.data);
+      messageTextArea.value = res.data.message;
+    }
+  });
+
 }
 window.controlMCIS = controlMCIS;
 
@@ -1784,6 +1777,8 @@ function deleteMCIS() {
   var mcisid = document.getElementById("mcisid").value;
 
   var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcis/${mcisid}?option=terminate`
+
+  infoAlert('Deleting MCIS (option=terminate): ' + mcisid);
 
   axios({
     method: 'delete',
