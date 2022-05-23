@@ -1045,7 +1045,7 @@ function infoAlert(message) {
     icon: 'info',
     title: message,
     showConfirmButton: false,
-    timer: 1500
+    timer: 2500
   })
 }
 
@@ -1055,7 +1055,7 @@ function errorAlert(message) {
     icon: 'error',
     title: message,
     showConfirmButton: false,
-    timer: 2000
+    //timer: 2000
   })
 }
 
@@ -1141,11 +1141,12 @@ function getMcis() {
 
           //makePoly5( [-15.712891, 47.09024], [-25.712891, 12.09024], [25.712891, 32.09024],[-25.712891, 31.09024], [-15.712891, 47.09024]);
 
-          mcisName[cnt] = "[" + item.name + "]"
+          mcisStatus[cnt] = item.status  
+          //mcisStatus[cnt] = item.targetAction + '-> ' + item.status 
           if (item.targetAction == "None" || item.targetAction == "") {
-            mcisStatus[cnt] = item.status  
+            mcisName[cnt] = "[" + item.name + "]"
           } else {
-            mcisStatus[cnt] = item.targetAction + '-> ' + item.status 
+            mcisName[cnt] = item.targetAction + '-> '+"[" + item.name + "]"
           }
 
           console.log("item.status is" + item.status);
@@ -1361,35 +1362,33 @@ function createMcis() {
       allowOutsideClick: () => !Swal.isLoading()
     }).then((result) => {
       if (result.isConfirmed) {
-        hasUserConfirmed = true;
+        messageTextArea.value = " Creating MCIS ...";
+        document.getElementById("createMcis").style.color = "#FF0000";
+      
+        axios({
+          method: 'post',
+          url: url,
+          headers: { 'Content-Type': 'application/json' },
+          data: jsonBody,
+          auth: {
+            username: `${username}`,
+            password: `${password}`
+          }
+          
+        })
+        .then((res)=>{
+          console.log(res); // for debug
+          document.getElementById("createMcis").style.color = "#000000";
+          messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
+          updateMcisList();
+          clearCircle("none")
+        });
       }
     })
 
-    if (hasUserConfirmed == true){
-      messageTextArea.value = " Creating MCIS ...";
-      document.getElementById("createMcis").style.color = "#FF0000";
-    
-      axios({
-        method: 'post',
-        url: url,
-        headers: { 'Content-Type': 'application/json' },
-        data: jsonBody,
-        auth: {
-          username: `${username}`,
-          password: `${password}`
-        }
-        
-      })
-      .then((res)=>{
-        console.log(res); // for debug
-        document.getElementById("createMcis").style.color = "#000000";
-        messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
-        updateMcisList();
-        clearCircle("none")
-      });
-    } 
   } else {
     messageTextArea.value = " To create a MCIS, VMs should be configured!\n Click the Map to add a config for VM request.";
+    errorAlert("Please configure MCIS first\n(Click the Map to add VMs)")
   }
 }
 window.createMcis = createMcis;
@@ -1571,6 +1570,7 @@ function getRecommendedSpec(idx, latitude, longitude) {
   })
   .then((res)=>{
     console.log(res); // for debug
+    addRegionMarker(res.data[0].id);
     //document.getElementById("latLonInputPairArea").innerHTML += `${res.data[0].id}<br>`;
 
     messageDetailTextArea.value = JSON.stringify(res.data, null, 2);
@@ -1598,32 +1598,38 @@ function getRecommendedSpec(idx, latitude, longitude) {
         '<br></b> connConfig: <b>' + res.data[0].connectionName +
         '<br></b> CSP: <b>' + res.data[0].providerName +
         '<br></b> Region: <b>' + res.data[0].regionName,
-      input: 'text',
+      input: 'number',
+      inputValue: '1',
+      didOpen: () => {
+        const input = Swal.getInput()
+        input.setSelectionRange(0, input.value.length)
+      },
       inputAttributes: {
         autocapitalize: 'off'
       },
       showCancelButton: true,
       confirmButtonText: 'Confirm',
-      showLoaderOnConfirm: true,
+      //showLoaderOnConfirm: true,
+      position: 'top-end',
+      //back(disabled section)ground color
+      backdrop: `rgba(0, 0, 0, 0.05)`,
       allowOutsideClick: () => !Swal.isLoading()
     }).then((result) => {
-      if (result.isConfirmed) {
+      // result.value is false if result.isDenied or another key such as result.isDismissed
+      if (result.value) {
         createMcisReqVm.vmGroupSize = result.value;
+        if (isNaN(createMcisReqVm.vmGroupSize)) {
+          createMcisReqVm.vmGroupSize = 1
+        }
+        messageTextArea.value += `${createMcisReqVm.commonSpec}` + `\t(${createMcisReqVm.vmGroupSize})`
+        recommendedSpecList.push(createMcisReqVm);
+      } else {
+        messageTextArea.value = messageTextArea.value.replace(/\n.*$/, '')
+        latLonInputPairIdx--;
+        cspPointsCircle.pop();
+        geoCspPointsCircle.pop();
       }
     })
-
-    if (createMcisReqVm.vmGroupSize != null) {
-      if (isNaN(createMcisReqVm.vmGroupSize)) {
-        createMcisReqVm.vmGroupSize = 1
-      }
-      messageTextArea.value += `${createMcisReqVm.commonSpec}` + `\t(${createMcisReqVm.vmGroupSize})`
-      recommendedSpecList.push(createMcisReqVm);
-      addRegionMarker(res.data[0].id);
-    } else {
-      messageTextArea.value = messageTextArea.value.replace(/\n.*$/, '')
-      latLonInputPairIdx--;
-      //cspPointsCircle.pop();
-    }
   });
 }
 window.getRecommendedSpec = getRecommendedSpec;
@@ -1850,6 +1856,7 @@ function deleteMCIS() {
     //clearMap();
     messageTextArea.value = JSON.stringify(res.data);
     updateMcisList();
+    clearMap();
   });
 
 }
