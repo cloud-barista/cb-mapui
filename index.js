@@ -1054,7 +1054,7 @@ function errorAlert(message) {
     // position: 'bottom-start',
     icon: 'error',
     title: message,
-    showConfirmButton: false,
+    showConfirmButton: true,
     //timer: 2000
   })
 }
@@ -1382,6 +1382,21 @@ function createMcis() {
           messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
           updateMcisList();
           clearCircle("none")
+        })
+        .catch(function (error) {
+          if (error.response) {
+            // status code is not 2xx
+            console.log(error.response.data);
+            console.log(error.response.status);
+            console.log(error.response.headers);
+          }
+          else {
+            // 오류를 발생시킨 요청을 설정하는 중에 문제가 발생했습니다.
+            console.log('Error', error.message);
+          }
+          console.log(error.config);
+          document.getElementById("createMcis").style.color = "#000000";
+          errorAlert(JSON.stringify(error.response.data, null, 2));
         });
       }
     })
@@ -1599,10 +1614,10 @@ function getRecommendedSpec(idx, latitude, longitude) {
         '<br></b> CSP: <b>' + res.data[0].providerName +
         '<br></b> Region: <b>' + res.data[0].regionName,
       input: 'number',
-      inputValue: '1',
+      inputValue: 1,
       didOpen: () => {
         const input = Swal.getInput()
-        input.setSelectionRange(0, input.value.length)
+        //input.setSelectionRange(0, input.value.length)
       },
       inputAttributes: {
         autocapitalize: 'off'
@@ -1612,13 +1627,13 @@ function getRecommendedSpec(idx, latitude, longitude) {
       //showLoaderOnConfirm: true,
       position: 'top-end',
       //back(disabled section)ground color
-      backdrop: `rgba(0, 0, 0, 0.05)`,
+      backdrop: `rgba(0, 0, 0, 0.08)`,
       allowOutsideClick: () => !Swal.isLoading()
     }).then((result) => {
       // result.value is false if result.isDenied or another key such as result.isDismissed
       if (result.value) {
         createMcisReqVm.vmGroupSize = result.value;
-        if (isNaN(createMcisReqVm.vmGroupSize)) {
+        if (isNaN(createMcisReqVm.vmGroupSize) || createMcisReqVm.vmGroupSize <= 0 ) {
           createMcisReqVm.vmGroupSize = 1
         }
         messageTextArea.value += `${createMcisReqVm.commonSpec}` + `\t(${createMcisReqVm.vmGroupSize})`
