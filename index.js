@@ -1308,6 +1308,8 @@ var createMcisReqVmTmplt = {
   commonSpec: "",
   description: "mapui",
   label: "DynamicVM",
+  rootDiskType: "default",
+  rootDiskSize: "default",
   vmGroupSize: "",
 }
 
@@ -1340,6 +1342,8 @@ function createMcis() {
       '<br><br></b> [VM group ' + i.toString()  + '] <b>' + 
       '<br></b> image: <b>' + createMcisReq.vm[i].commonImage +
       '<br></b> spec: <b>' + createMcisReq.vm[i].commonSpec +
+      '<br></b> rootDiskType: <b>' + createMcisReq.vm[i].rootDiskType +
+      '<br></b> rootDiskSize: <b>' + createMcisReq.vm[i].rootDiskSize +
       '<br></b> VM group size: <b>' + createMcisReq.vm[i].vmGroupSize;
 
       vmGroupReqString = vmGroupReqString + html;
@@ -1391,7 +1395,6 @@ function createMcis() {
             console.log(error.response.headers);
           }
           else {
-            // 오류를 발생시킨 요청을 설정하는 중에 문제가 발생했습니다.
             console.log('Error', error.message);
           }
           console.log(error.config);
@@ -1597,6 +1600,8 @@ function getRecommendedSpec(idx, latitude, longitude) {
 
     var createMcisReqVm = $.extend( {}, createMcisReqVmTmplt );
     createMcisReqVm.commonSpec = res.data[0].id;
+    createMcisReqVm.rootDiskType = res.data[0].rootDiskType;
+    createMcisReqVm.rootDiskSize = res.data[0].rootDiskSize;
 
     Swal.fire({
       title: 'Please provide the number of VMs to create (1 ~ 10)',
@@ -1608,11 +1613,13 @@ function getRecommendedSpec(idx, latitude, longitude) {
         '<br><br></b> vCPU: <b>' + res.data[0].numvCPU +
         '<br></b> Mem(GiB): <b>' + res.data[0].memGiB +
         '<br></b> Cost($/1H): <b>' + res.data[0].costPerHour +
-        
-        '<br><br></b> namespace: <b>' + res.data[0].namespace +
-        '<br></b> connConfig: <b>' + res.data[0].connectionName +
+
+        '<br></b> rootDiskType: <b>' + res.data[0].rootDiskType +
+        '<br></b> rootDiskSize(GB): <b>' + res.data[0].rootDiskSize +
+
         '<br></b> CSP: <b>' + res.data[0].providerName +
-        '<br></b> Region: <b>' + res.data[0].regionName,
+        '<br></b> Region: <b>' + res.data[0].regionName +
+        '<br></b> connConfig: <b>' + res.data[0].connectionName,
       input: 'number',
       inputValue: 1,
       didOpen: () => {
