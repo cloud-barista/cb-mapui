@@ -237,6 +237,9 @@ function displayCSPListOn() {
               if (cloudLocation[i]["CloudType"] == "gcp") {
                 cspPointsGcp.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
               }
+              if (cloudLocation[i]["CloudType"] == "ncpvpc") {
+                cspPointsNcpVpc.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
+              }
               if (cloudLocation[i]["CloudType"] == "alibaba") {
                 cspPointsAlibaba.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
               }
@@ -248,9 +251,6 @@ function displayCSPListOn() {
               }
               if (cloudLocation[i]["CloudType"] == "tencent") {
                 cspPointsTencent.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
-              }
-              if (cloudLocation[i]["CloudType"] == "ncpvpc") {
-                cspPointsNcpVpc.push([cloudLocation[i]["Longitude"], cloudLocation[i]["Latitude"]]);
               }
             }
             
@@ -1131,65 +1131,76 @@ function getMcis() {
       cnt = cntInit;
       if ( obj.mcis != null ){
         console.log(obj.mcis);
-      for (let item of obj.mcis) {
-        //console.log("Index:[" + "]obj.mcis[i].name = " + item.name);
-        console.log(item);
+        for (let item of obj.mcis) {
+          //console.log("Index:[" + "]obj.mcis[i].name = " + item.name);
+          console.log(item);
 
-        //mcisGeo[i] = new Array();
-
-        var vmGeo = [];
-
-        var validateNum = 0;
-        for (j = 0; j < item.vm.length; j++) {
-          //vmGeo.push([(item.vm[j].location.longitude*1) + (Math.round(Math.random()) / zoomLevel - 1) * Math.random()*1, (item.vm[j].location.latitude*1) + (Math.round(Math.random()) / zoomLevel - 1) * Math.random()*1 ])
-          if (j == 0){
-            vmGeo.push([(item.vm[j].location.longitude*1), (item.vm[j].location.latitude*1) ])
-          } else {
-            vmGeo.push([(item.vm[j].location.longitude*1) + returnAdjustmentPoint(j).ax/zoomLevel*radius , (item.vm[j].location.latitude*1) + returnAdjustmentPoint(j).ay/zoomLevel*radius ])
+          var hideFlag = false;
+          for (let hideName of mcisHideList) {
+            if (item.id == hideName) {
+              hideFlag = true;
+              break;
+            }
           }
-          validateNum++;
-
-        }
-        if (item.vm.length == 1){
-          // handling if there is only one vm so that we can not draw geometry
-          vmGeo.pop()
-          vmGeo.push([(item.vm[0].location.longitude*1) , (item.vm[0].location.latitude*1) ])
-          vmGeo.push([(item.vm[0].location.longitude*1) + Math.random()*0.001, (item.vm[0].location.latitude*1) + Math.random()*0.001 ])
-          vmGeo.push([(item.vm[0].location.longitude*1) + Math.random()*0.001, (item.vm[0].location.latitude*1) + Math.random()*0.001 ])
-        }
-        if (validateNum == item.vm.length) {
-          console.log("Found all GEOs validateNum : " + validateNum)
-
-          //make dots without convexHull
-          makePolyDot(vmGeo)
-          vmGeo = convexHull(vmGeo);
-
-          for (j = 0; j < vmGeo.length; j++) {
-
-            console.log("vmGeo[" + j + "] is" + vmGeo[j]);
-
-          }
-          //mcisGeo2.push(vmGeo);
-          //makePoly4( vmGeo[0], vmGeo[1],[-95.712891, 37.09024], vmGeo[0]);
-
-          //makePoly5( [-15.712891, 47.09024], [-25.712891, 12.09024], [25.712891, 32.09024],[-25.712891, 31.09024], [-15.712891, 47.09024]);
-
-          mcisStatus[cnt] = item.status  
-          //mcisStatus[cnt] = item.targetAction + '-> ' + item.status 
-          if (item.targetAction == "None" || item.targetAction == "") {
-            mcisName[cnt] = "[" + item.name + "]"
-          } else {
-            mcisName[cnt] = item.targetAction + '-> '+"[" + item.name + "]"
+          if (hideFlag) {
+            continue;
           }
 
-          console.log("item.status is" + item.status);
+          //mcisGeo[i] = new Array();
 
-          //make poly with convexHull
-          makePolyArray(vmGeo);
+          var vmGeo = [];
 
-          cnt++;
+          var validateNum = 0;
+          for (j = 0; j < item.vm.length; j++) {
+            //vmGeo.push([(item.vm[j].location.longitude*1) + (Math.round(Math.random()) / zoomLevel - 1) * Math.random()*1, (item.vm[j].location.latitude*1) + (Math.round(Math.random()) / zoomLevel - 1) * Math.random()*1 ])
+            if (j == 0){
+              vmGeo.push([(item.vm[j].location.longitude*1), (item.vm[j].location.latitude*1) ])
+            } else {
+              vmGeo.push([(item.vm[j].location.longitude*1) + returnAdjustmentPoint(j).ax/zoomLevel*radius , (item.vm[j].location.latitude*1) + returnAdjustmentPoint(j).ay/zoomLevel*radius ])
+            }
+            validateNum++;
+
+          }
+          if (item.vm.length == 1){
+            // handling if there is only one vm so that we can not draw geometry
+            vmGeo.pop()
+            vmGeo.push([(item.vm[0].location.longitude*1) , (item.vm[0].location.latitude*1) ])
+            vmGeo.push([(item.vm[0].location.longitude*1) + Math.random()*0.001, (item.vm[0].location.latitude*1) + Math.random()*0.001 ])
+            vmGeo.push([(item.vm[0].location.longitude*1) + Math.random()*0.001, (item.vm[0].location.latitude*1) + Math.random()*0.001 ])
+          }
+          if (validateNum == item.vm.length) {
+            console.log("Found all GEOs validateNum : " + validateNum)
+
+            //make dots without convexHull
+            makePolyDot(vmGeo)
+            vmGeo = convexHull(vmGeo);
+
+            for (j = 0; j < vmGeo.length; j++) {
+
+              console.log("vmGeo[" + j + "] is" + vmGeo[j]);
+
+            }
+            //mcisGeo2.push(vmGeo);
+            //makePoly4( vmGeo[0], vmGeo[1],[-95.712891, 37.09024], vmGeo[0]);
+
+            //makePoly5( [-15.712891, 47.09024], [-25.712891, 12.09024], [25.712891, 32.09024],[-25.712891, 31.09024], [-15.712891, 47.09024]);
+
+            mcisStatus[cnt] = item.status  
+            //mcisStatus[cnt] = item.targetAction + '-> ' + item.status 
+            if (item.targetAction == "None" || item.targetAction == "") {
+              mcisName[cnt] = "[" + item.name + "]"
+            } else {
+              mcisName[cnt] = item.targetAction + '-> '+"[" + item.name + "]"
+            }
+
+            console.log("item.status is" + item.status);
+
+            //make poly with convexHull
+            makePolyArray(vmGeo);
+
+            cnt++;
+          }
         }
-      }
     }
 
   })
@@ -1288,6 +1299,9 @@ function getConnection() {
               if (providerName == "gcp") {
                 cspPointsGcp.push([longitude, latitude]);
               }
+              if (providerName == "ncpvpc") {
+                cspPointsNcpVpc.push([longitude, latitude]);
+              }
               if (providerName == "alibaba") {
                 cspPointsAlibaba.push([longitude, latitude]);
               }
@@ -1300,19 +1314,16 @@ function getConnection() {
               if (providerName == "tencent") {
                 cspPointsTencent.push([longitude, latitude]);
               }
-              if (providerName == "ncpvpc") {
-                cspPointsNcpVpc.push([longitude, latitude]);
-              }
             }
 
             geoCspPointsAzure[0] = new MultiPoint([cspPointsAzure]);
             geoCspPointsAws[0] = new MultiPoint([cspPointsAws]);
             geoCspPointsGcp[0] = new MultiPoint([cspPointsGcp]);
+            geoCspPointsNcpVpc[0] = new MultiPoint([cspPointsNcpVpc]);
             geoCspPointsAlibaba[0] = new MultiPoint([cspPointsAlibaba]);
             geoCspPointsCloudit[0] = new MultiPoint([cspPointsCloudit]);
             geoCspPointsIBM[0] = new MultiPoint([cspPointsIBM]);
             geoCspPointsTencent[0] = new MultiPoint([cspPointsTencent]);
-            geoCspPointsNcpVpc[0] = new MultiPoint([cspPointsNcpVpc]);
         
             infoAlert('Registered Cloud Regions: '+obj.connectionconfig.length)
   
@@ -1386,68 +1397,87 @@ function createMcis() {
 
     var hasUserConfirmed = false;
 
-    Swal.fire({
-      title: 'Are you sure to create MCIS as follows:',
-      width: 600,
-      html: 
-        '<font size=3>' +
-        'MCIS name: <b>' + createMcisReq.name +
-        
-        vmGroupReqString,
-      showCancelButton: true,
-      inputPlaceholder: 'Deploy CB-Dragonfly monitoring agent',
-      input: 'checkbox',
-      inputValue: 0,
-      confirmButtonText: 'Confirm',
-      inputPlaceholder: '<font size=3> Check to deploy CB-Dragonfly monitoring agent',
-      showLoaderOnConfirm: true,
-      scrollbarPadding: false,
-      allowOutsideClick: () => !Swal.isLoading()
-    }).then((result) => {
-      if (result.isConfirmed) {
-        if (result.value) {
-          Swal.fire('Create MCIS with CB-Dragonfly monitoring agent')
-          createMcisReq.installMonAgent = 'yes'
-        }
-        var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
 
-        messageTextArea.value = " Creating MCIS ...";
-        document.getElementById("createMcis").style.color = "#FF0000";
-      
-        axios({
-          method: 'post',
-          url: url,
-          headers: { 'Content-Type': 'application/json' },
-          data: jsonBody,
-          auth: {
-            username: `${username}`,
-            password: `${password}`
-          }
+    Swal.fire({
+      title: 'Please change the name of MCIS to create if you wish',
+      input: 'text',
+      inputAttributes: {
+        autocapitalize: 'off'
+      },
+      inputValue: createMcisReq.name,
+      showCancelButton: true,
+      confirmButtonText: 'Confirm'
+    }).then((result) => {
+      if (result.value) {
+
+        createMcisReq.name = result.value;
+        
+        Swal.fire({
+          title: 'Are you sure to create MCIS as follows:',
+          width: 600,
+          html: 
+            '<font size=3>' +
+            'MCIS name: <b>' + createMcisReq.name +
+            
+            vmGroupReqString,
+          showCancelButton: true,
+          inputPlaceholder: 'Deploy CB-Dragonfly monitoring agent',
+          input: 'checkbox',
+          inputValue: 0,
+          confirmButtonText: 'Confirm',
+          inputPlaceholder: '<font size=3> Check to deploy CB-Dragonfly monitoring agent',
+          scrollbarPadding: false
+        }).then((result) => {
+          if (result.isConfirmed) {
+            if (result.value) {
+              Swal.fire('Create MCIS with CB-Dragonfly monitoring agent')
+              createMcisReq.installMonAgent = 'yes'
+            }
+            var jsonBody = JSON.stringify(createMcisReq, undefined, 4);
+    
+            messageTextArea.value = " Creating MCIS ...";
+            document.getElementById("createMcis").style.color = "#FF0000";
           
-        })
-        .then((res)=>{
-          console.log(res); // for debug
-          document.getElementById("createMcis").style.color = "#000000";
-          messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
-          updateMcisList();
-          clearCircle("none")
-        })
-        .catch(function (error) {
-          if (error.response) {
-            // status code is not 2xx
-            console.log(error.response.data);
-            console.log(error.response.status);
-            console.log(error.response.headers);
+            axios({
+              method: 'post',
+              url: url,
+              headers: { 'Content-Type': 'application/json' },
+              data: jsonBody,
+              auth: {
+                username: `${username}`,
+                password: `${password}`
+              }
+              
+            })
+            .then((res)=>{
+              console.log(res); // for debug
+              document.getElementById("createMcis").style.color = "#000000";
+              messageTextArea.value = "[Complete: MCIS Info]\n" + JSON.stringify(res.data, null, 2);
+              updateMcisList();
+              clearCircle("none")
+              infoAlert('Created '+ createMcisReq.name);
+            })
+            .catch(function (error) {
+              if (error.response) {
+                // status code is not 2xx
+                console.log(error.response.data);
+                console.log(error.response.status);
+                console.log(error.response.headers);
+              }
+              else {
+                console.log('Error', error.message);
+              }
+              console.log(error.config);
+              document.getElementById("createMcis").style.color = "#000000";
+              errorAlert(JSON.stringify(error.response.data, null, 2));
+            });
           }
-          else {
-            console.log('Error', error.message);
-          }
-          console.log(error.config);
-          document.getElementById("createMcis").style.color = "#000000";
-          errorAlert(JSON.stringify(error.response.data, null, 2));
-        });
-      }
+        })
+
+      } 
     })
+
+
 
   } else {
     messageTextArea.value = " To create a MCIS, VMs should be configured!\n Click the Map to add a config for VM request.";
@@ -1679,8 +1709,7 @@ function getRecommendedSpec(idx, latitude, longitude) {
       //showLoaderOnConfirm: true,
       position: 'top-end',
       //back(disabled section)ground color
-      backdrop: `rgba(0, 0, 0, 0.08)`,
-      allowOutsideClick: () => !Swal.isLoading()
+      backdrop: `rgba(0, 0, 0, 0.08)`
     }).then((result) => {
       // result.value is false if result.isDenied or another key such as result.isDismissed
       if (result.value) {
@@ -1809,9 +1838,7 @@ function controlMCIS(action) {
       console.log(`The actions ${action} is not supported. Supported actions: refine, suspend, resume, reboot, terminate.`);
       return
   }
-  messageTextArea.value = "[MCIS " +action +"]";
-
-  infoAlert('MCIS control:['+ action + ']');
+  //messageTextArea.value = "[MCIS " +action +"]";
 
   var hostname = hostnameElement.value;
   var port = portElement.value;
@@ -1819,6 +1846,8 @@ function controlMCIS(action) {
   var password = document.getElementById("password").value;
   var namespace = document.getElementById("namespace").value;
   var mcisid = document.getElementById("mcisid").value;
+
+  infoAlert(action +': '+mcisid);
 
   var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/control/mcis/${mcisid}?action=${action}`
 
@@ -1834,15 +1863,154 @@ function controlMCIS(action) {
     
   })
   .then((res)=>{
-    
     if ( res.data != null ){
       console.log(res.data);
       messageTextArea.value = res.data.message;
+      switch(action) {
+        case 'refine':
+          infoAlert(JSON.stringify(res.data.message, null, 2));
+        case 'terminate':
+          infoAlert(JSON.stringify(res.data.message, null, 2));
+          break;
+        default:
+          console.log(`The actions ${action} is not supported. Supported actions: refine, suspend, resume, reboot, terminate.`);
+      }
     }
+  })
+  .catch(function (error) {
+    if (error.response) {
+      // status code is not 2xx
+      console.log(error.response.data);
+      console.log(error.response.status);
+      console.log(error.response.headers);
+    }
+    else {
+      console.log('Error', error.message);
+    }
+    console.log(error.config);
+    errorAlert(JSON.stringify(error.response.data, null, 2));
   });
 
 }
 window.controlMCIS = controlMCIS;
+
+
+function hideMCIS() {
+
+  var hostname = hostnameElement.value;
+  var port = portElement.value;
+  var username = document.getElementById("username").value;
+  var password = document.getElementById("password").value;
+  var namespace = document.getElementById("namespace").value;
+  var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcis?option=id`
+
+  var hideListString = '';
+    for(i = 0; i < mcisHideList.length; i++) {
+      var html = 
+      '<br>[' + i + ']' + ': <b>'+ mcisHideList[i] + '</b> (hidden)' ;
+
+      hideListString = hideListString + html;
+    }
+
+  axios({
+    method: 'get',
+    url: url,
+    auth: {
+      username: `${username}`,
+      password: `${password}`
+    }
+  })
+  .then((res)=>{
+    if ( res.data.output != null ){
+      mcisList = res.data.output;
+
+
+      Swal.fire({
+        title: 'Hide/Show a MCIS from the Map',
+        html: 
+          '<font size=3>' +
+          hideListString,
+        showCancelButton: true,
+        confirmButtonText: 'Show',
+        showDenyButton: true,
+        denyButtonText: 'Hide'
+      }).then((result) => {
+
+        hideListString = '';
+
+        if (result.isConfirmed) {
+          if (mcisHideList.length != 0) {
+            Swal.fire({
+              title: 'Show a MCIS from the Map',
+              html: 
+                '<font size=3>' +
+                hideListString,
+              input: 'select',
+              inputOptions: mcisHideList,
+              inputPlaceholder: 'Select from dropdown',
+              inputAttributes: {
+                autocapitalize: 'off'
+              },
+              showCancelButton: true,
+              confirmButtonText: 'Show',
+            }).then((result) => {
+              if (result.isConfirmed) {
+                mcisHideList = mcisHideList.filter(a => a !== mcisHideList[result.value])
+
+                for(i = 0; i < mcisHideList.length; i++) {
+                  var html = 
+                  '<br>[' + i + ']' + ': <b>'+ mcisHideList[i] + '</b> (hidden)' ;
+                  hideListString = hideListString + html;
+                }
+                infoAlert('Show: '+ mcisHideList[result.value] + '<br>' + hideListString)
+              }
+            }) 
+          } else {
+            infoAlert('There is no hidden MCIS yet')
+          }
+
+        } else if (result.isDenied) {
+          if (mcisList.length != 0) {
+            Swal.fire({
+              title: 'Hide a MCIS from the Map',
+              html: 
+                '<font size=3>' +
+                hideListString,
+              input: 'select',
+              inputOptions: mcisList.filter(val => !mcisHideList.includes(val)),
+              inputPlaceholder: 'Select from dropdown',
+              inputAttributes: {
+                autocapitalize: 'off'
+              },
+              showCancelButton: true,
+              confirmButtonText: 'Hide',
+            }).then((result) => {
+              if (result.isConfirmed) {            
+                mcisHideList.push(mcisList[result.value])
+                // remove duplicated items
+                mcisHideList = [...new Set(mcisHideList)]
+
+                for(i = 0; i < mcisHideList.length; i++) {
+                  var html = 
+                  '<br>[' + i + ']' + ': <b>'+ mcisHideList[i] + '</b> (hidden)' ;
+                  hideListString = hideListString + html;
+                }
+                infoAlert('Hide: '+ mcisList[result.value] + '<br>' + hideListString)
+              }
+            })
+          } else {
+            infoAlert('There is no MCIS yet')
+          }
+ 
+        }
+      })
+    }
+  });
+  
+
+
+}
+window.hideMCIS = hideMCIS;
 
 
 function statusMCIS() {
@@ -1907,7 +2075,7 @@ function deleteMCIS() {
 
   var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcis/${mcisid}?option=terminate`
 
-  infoAlert('Deleting MCIS (option=terminate): ' + mcisid);
+  infoAlert('Delete: ' + mcisid + ' (option=terminate)');
 
   axios({
     method: 'delete',
@@ -1919,11 +2087,26 @@ function deleteMCIS() {
     
   })
   .then((res)=>{
-    console.log(res); // for debug
-    //clearMap();
-    messageTextArea.value = JSON.stringify(res.data);
-    updateMcisList();
-    clearMap();
+    if ( res.data != null ){
+      console.log(res.data);
+      messageTextArea.value = res.data.message;
+      updateMcisList();
+      clearMap();
+      infoAlert(JSON.stringify(res.data.message, null, 2));
+    }
+  })
+  .catch(function (error) {
+    if (error.response) {
+      // status code is not 2xx
+      console.log(error.response.data);
+      console.log(error.response.status);
+      console.log(error.response.headers);
+    }
+    else {
+      console.log('Error', error.message);
+    }
+    console.log(error.config);
+    errorAlert(JSON.stringify(error.response.data, null, 2));
   });
 
 }
@@ -2034,6 +2217,9 @@ function registerCspResource() {
 window.registerCspResource = registerCspResource;
 
 
+var mcisList = [];
+var mcisHideList = [];
+
 function updateMcisList() {
   // Clear options in 'select'
   var selectElement = document.getElementById('mcisid');
@@ -2044,14 +2230,11 @@ function updateMcisList() {
 
   var hostname = hostnameElement.value;
   var port = portElement.value;
-
   var username = document.getElementById("username").value;
   var password = document.getElementById("password").value;
-  var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
-
   var namespace = document.getElementById("namespace").value;
 
-  var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcis?option=status`
+  var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mcis?option=id`
 
   axios({
     method: 'get',
@@ -2060,14 +2243,14 @@ function updateMcisList() {
       username: `${username}`,
       password: `${password}`
     }
-    
   })
   .then((res)=>{
-    if ( res.data.mcis != null ){
-      for (let item of res.data.mcis) {
+    if ( res.data.output != null ){
+      mcisList = res.data.output;
+      for (let item of res.data.output) {
         var option = document.createElement("option");
-        option.value = item.name;
-        option.text = item.name;
+        option.value = item;
+        option.text = item;
         document.getElementById('mcisid').appendChild(option);
       }
     }
@@ -2300,10 +2483,10 @@ function drawMCIS(event) {
     vectorContext.drawGeometry(geoCspPointsIBM[0]);
     vectorContext.setStyle(iconStyleTencent);
     vectorContext.drawGeometry(geoCspPointsTencent[0]);
-    vectorContext.setStyle(iconStyleNcpVpc);
-    vectorContext.drawGeometry(geoCspPointsNcpVpc[0]);
     vectorContext.setStyle(iconStyleAlibaba);
     vectorContext.drawGeometry(geoCspPointsAlibaba[0]);
+    vectorContext.setStyle(iconStyleNcpVpc);
+    vectorContext.drawGeometry(geoCspPointsNcpVpc[0]);
     vectorContext.setStyle(iconStyleAzure);
     vectorContext.drawGeometry(geoCspPointsAzure[0]);
     vectorContext.setStyle(iconStyleAws);
