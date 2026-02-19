@@ -13541,6 +13541,541 @@ function showRemoteCmdResult(data) {
 }
 window.showRemoteCmdResult = showRemoteCmdResult;
 
+// ============================================================
+// Real-time Streaming Command Sessions (SSE-based)
+// ============================================================
+// Architecture: SSE streams run in background, independent of any modal.
+// The Swal modal is just a "view" into a session. Closing it does NOT
+// kill the stream. Users can re-open any session from the floating badge.
+// ============================================================
+
+/**
+ * Global registry of active command streaming sessions.
+ * Key: xRequestId, Value: session object
+ */
+window._cmdStreamSessions = {};
+
+/**
+ * Create a new streaming session, start SSE consumption in background,
+ * and open the streaming modal.
+ */
+function startStreamingSession(streamUrl, username, password, xRequestId, mciId, spinnerId) {
+  const session = {
+    xRequestId,
+    mciId,
+    spinnerId,
+    streamUrl,
+    startTime: Date.now(),
+    vmState: {},        // { vmId: { status, stdoutLines: [], stderrLines: [], statusInfo: null } }
+    doneSummary: null,
+    abortController: new AbortController(),
+    rebuildCallback: null,   // set when modal is open, null when closed
+    cleanupTimer: null,
+    error: null,          // SSE transport/connection error
+    commandError: null,   // Server-side command execution error (from CommandDone summary)
+  };
+
+  window._cmdStreamSessions[xRequestId] = session;
+  updateStreamingBadge();
+
+  const getOrCreateVm = (vmId) => {
+    if (!session.vmState[vmId]) {
+      session.vmState[vmId] = { status: 'Queued', stdoutLines: [], stderrLines: [], statusInfo: null };
+    }
+    return session.vmState[vmId];
+  };
+
+  // Start background SSE consumption
+  consumeSSEStream(streamUrl, username, password, session.abortController, (event) => {
+    console.log('[SSE] Event received:', event.type, event.vmId || '', event);
+    if (event.type === 'CommandStatus' && event.vmId) {
+      const vm = getOrCreateVm(event.vmId);
+      vm.status = event.status?.status || vm.status;
+      vm.statusInfo = event.status || vm.statusInfo;
+    } else if (event.type === 'CommandLog' && event.vmId && event.log) {
+      const vm = getOrCreateVm(event.vmId);
+      const line = event.log.line || '';
+      if (event.log.stream === 'stdout') {
+        vm.stdoutLines.push(line);
+      } else if (event.log.stream === 'stderr') {
+        vm.stderrLines.push(line);
+      }
+    } else if (event.type === 'CommandDone') {
+      const totalVms = Object.keys(session.vmState).length;
+      session.doneSummary = event.summary || { totalVms, completedVms: 0, failedVms: 0, elapsedSeconds: 0 };
+      // Propagate server-side error from CommandDone summary
+      if (event.summary && event.summary.error) {
+        session.commandError = event.summary.error;
+      }
+      removeSpinnerTask(session.spinnerId);
+      // Auto-cleanup session after 5 minutes
+      session.cleanupTimer = setTimeout(() => {
+        delete window._cmdStreamSessions[xRequestId];
+        updateStreamingBadge();
+      }, 5 * 60 * 1000);
+    }
+    updateStreamingBadge();
+    // Notify modal view if open
+    if (session.rebuildCallback) session.rebuildCallback();
+  }).catch(err => {
+    if (err.name !== 'AbortError') {
+      console.error('SSE stream error:', err);
+      session.error = err.message || 'Connection failed';
+      removeSpinnerTask(session.spinnerId);
+      updateStreamingBadge();
+      if (session.rebuildCallback) session.rebuildCallback();
+    }
+  });
+
+  // Periodic timer to update "Waiting..." elapsed counter and detect timeout
+  session._waitingTimer = setInterval(() => {
+    if (session.doneSummary || session.error || session.commandError) {
+      clearInterval(session._waitingTimer);
+      return;
+    }
+    const elapsed = (Date.now() - session.startTime) / 1000;
+    // After 60 seconds with no events and no VMs, treat as connection issue
+    if (elapsed > 60 && Object.keys(session.vmState).length === 0) {
+      session.error = 'No events received within 60 seconds. The command may have failed silently.';
+      removeSpinnerTask(session.spinnerId);
+      clearInterval(session._waitingTimer);
+    }
+    updateStreamingBadge();
+    if (session.rebuildCallback) session.rebuildCallback();
+  }, 2000);
+
+  // Open modal immediately
+  openStreamingSessionModal(xRequestId);
+}
+
+/**
+ * Open (or re-open) the streaming modal for a given session.
+ */
+function openStreamingSessionModal(xRequestId) {
+  const session = window._cmdStreamSessions[xRequestId];
+  if (!session) {
+    Swal.fire({ icon: 'info', title: 'Session Expired', text: 'This streaming session is no longer available.' });
+    return;
+  }
+
+  const statusBadge = (status) => {
+    const colors = {
+      'Queued': '#6c757d', 'Handling': '#0d6efd', 'Completed': '#198754',
+      'Failed': '#dc3545', 'Timeout': '#fd7e14', 'Cancelled': '#6c757d', 'Interrupted': '#ffc107'
+    };
+    const bg = colors[status] || '#6c757d';
+    return `<span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:10px;font-weight:600;color:#fff;background:${bg};">${window.escapeHtml(status)}</span>`;
+  };
+
+  const renderVmPanel = (vmId) => {
+    const vm = session.vmState[vmId];
+    if (!vm) return '';
+    const stdoutText = vm.stdoutLines.join('\n');
+    const stderrText = vm.stderrLines.join('\n');
+
+    let html = `
+      <div style="margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+        <span style="font-weight:600;font-size:12px;color:#333;">${window.escapeHtml(vmId)}</span>
+        ${statusBadge(vm.status)}
+        ${vm.statusInfo && vm.statusInfo.elapsedTime ? `<span style="font-size:10px;color:#888;">${vm.statusInfo.elapsedTime}s</span>` : ''}
+      </div>`;
+
+    if (stdoutText) {
+      html += `
+      <div style="margin-bottom:4px;">
+        <div style="background:#e8f5e9;padding:2px 8px;font-size:10px;color:#2e7d32;font-weight:600;">stdout (${vm.stdoutLines.length} lines)</div>
+        <pre style="margin:0;padding:6px 8px;background:#1e1e1e;color:#d4d4d4;font-size:11px;line-height:1.4;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;">${_escAndLinkify(stdoutText)}</pre>
+      </div>`;
+    }
+
+    if (stderrText) {
+      html += `
+      <div style="margin-bottom:4px;">
+        <div style="background:#fff3e0;padding:2px 8px;font-size:10px;color:#e65100;font-weight:600;">stderr (${vm.stderrLines.length} lines)</div>
+        <pre style="margin:0;padding:6px 8px;background:#2e1e1e;color:#ffab91;font-size:11px;line-height:1.4;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;">${_escAndLinkify(stderrText)}</pre>
+      </div>`;
+    }
+
+    return html;
+  };
+
+  // Throttled rebuild
+  let rebuildTimer = null;
+  const scheduleRebuild = () => {
+    if (!rebuildTimer) {
+      rebuildTimer = setTimeout(() => {
+        rebuildTimer = null;
+        rebuildModal();
+      }, 100);
+    }
+  };
+
+  const rebuildModal = () => {
+    const popup = Swal.getPopup();
+    if (!popup) return;
+    const container = popup.querySelector('#stream-body');
+    if (!container) return;
+
+    const vmIds = Object.keys(session.vmState).sort();
+    const totalVms = vmIds.length;
+    const completedCount = vmIds.filter(id => ['Completed','Failed','Timeout','Cancelled','Interrupted'].includes(session.vmState[id].status)).length;
+    const handlingCount = vmIds.filter(id => session.vmState[id].status === 'Handling').length;
+    const isFinished = session.doneSummary !== null;
+
+    let summaryHtml = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:5px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:16px;">${isFinished ? (session.commandError || session.doneSummary.failedVms > 0 ? '⚠️' : '✅') : '⏳'}</span>
+          <span style="font-size:12px;font-weight:600;color:#333;">${isFinished ? (session.commandError ? 'Failed' : 'Completed') : 'Streaming...'}</span>
+          <span style="font-size:10px;color:#888;">${completedCount}/${totalVms} VMs done${handlingCount > 0 ? ` · ${handlingCount} running` : ''}</span>
+          ${session.doneSummary ? `<span style="font-size:10px;color:#888;">· ${session.doneSummary.elapsedSeconds}s total</span>` : ''}
+        </div>
+        <span style="font-size:10px;color:#aaa;">MCI: ${window.escapeHtml(session.mciId)} | x-request-id: ${window.escapeHtml(xRequestId)}</span>
+      </div>`;
+
+    if (session.error) {
+      summaryHtml += `<div style="margin-bottom:8px;padding:8px;background:#ffebee;border-left:4px solid #d32f2f;border-radius:4px;font-size:12px;color:#c62828;">
+        <b>Stream Error:</b> ${window.escapeHtml(session.error)}
+      </div>`;
+    }
+
+    // Waiting state
+    if (vmIds.length === 0 && !isFinished) {
+      if (session.commandError) {
+        // Error before any VMs started (e.g., preprocessing failure)
+        container.innerHTML = summaryHtml + `<div style="padding:16px;text-align:center;">
+          <div style="margin-bottom:8px;padding:10px;background:#ffebee;border-left:4px solid #d32f2f;border-radius:4px;font-size:12px;color:#c62828;text-align:left;">
+            <b>Command Failed:</b> ${window.escapeHtml(session.commandError)}
+          </div>
+          <div style="font-size:11px;color:#888;">The command failed before reaching any VMs.</div>
+        </div>`;
+      } else if (session.error) {
+        // SSE transport error while waiting
+        container.innerHTML = summaryHtml + `<div style="padding:16px;text-align:center;">
+          <div style="font-size:11px;color:#888;">No VM execution results available.</div>
+        </div>`;
+      } else {
+        // Still waiting for events
+        const waitingSec = Math.floor((Date.now() - session.startTime) / 1000);
+        container.innerHTML = summaryHtml + `<div style="padding:20px;text-align:center;color:#888;">
+          <span style="font-size:24px;">⏳</span><br>Waiting for first event... (${waitingSec}s)
+        </div>`;
+      }
+      return;
+    }
+
+    // Finished with error but no VMs processed
+    if (vmIds.length === 0 && isFinished) {
+      let errorHtml = '';
+      if (session.commandError) {
+        errorHtml = `<div style="margin-bottom:8px;padding:10px;background:#ffebee;border-left:4px solid #d32f2f;border-radius:4px;font-size:12px;color:#c62828;text-align:left;">
+          <b>Command Failed:</b> ${window.escapeHtml(session.commandError)}
+        </div>`;
+      }
+      container.innerHTML = summaryHtml + `<div style="padding:16px;text-align:center;">
+        ${errorHtml}
+        <div style="font-size:11px;color:#888;">No VM execution results available.</div>
+      </div>`;
+      return;
+    }
+
+    // VM panels with tabs
+    let bodyHtml;
+    if (vmIds.length <= 1) {
+      bodyHtml = vmIds.map(id => renderVmPanel(id)).join('');
+    } else {
+      const activeTab = popup.querySelector('.stream-tab-btn.stream-tab-active')?.dataset?.vmid || vmIds[0];
+      const tabBtns = vmIds.map(id => {
+        const isActive = id === activeTab;
+        const vm = session.vmState[id];
+        const statusDot = vm.status === 'Handling' ? '🔵' : (vm.status === 'Completed' ? '🟢' : (vm.status === 'Failed' ? '🔴' : '⚪'));
+        return `<button type="button" class="stream-tab-btn${isActive ? ' stream-tab-active' : ''}" data-vmid="${window.escapeHtml(id)}"
+          style="padding:3px 8px;font-size:10px;border:1px solid #dee2e6;border-bottom:none;border-radius:4px 4px 0 0;cursor:pointer;
+                 background:${isActive ? '#fff' : '#f1f3f5'};color:${isActive ? '#333' : '#888'};font-weight:${isActive ? '600' : '400'};">
+          ${statusDot} ${window.escapeHtml(id)}
+        </button>`;
+      }).join('');
+
+      const tabPanels = vmIds.map(id => {
+        const isActive = id === activeTab;
+        return `<div class="stream-tab-panel" data-vmid="${window.escapeHtml(id)}" style="display:${isActive ? 'block' : 'none'};padding:8px 0 0 0;">
+          ${renderVmPanel(id)}
+        </div>`;
+      }).join('');
+
+      bodyHtml = `
+        <div style="display:flex;flex-wrap:wrap;gap:2px;border-bottom:2px solid #dee2e6;margin-bottom:0;">
+          ${tabBtns}
+        </div>
+        ${tabPanels}`;
+    }
+
+    container.innerHTML = summaryHtml + bodyHtml;
+
+    // Tab click listeners
+    container.querySelectorAll('.stream-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const vmid = btn.dataset.vmid;
+        container.querySelectorAll('.stream-tab-btn').forEach(b => {
+          b.classList.remove('stream-tab-active');
+          b.style.background = '#f1f3f5'; b.style.color = '#888'; b.style.fontWeight = '400';
+        });
+        btn.classList.add('stream-tab-active');
+        btn.style.background = '#fff'; btn.style.color = '#333'; btn.style.fontWeight = '600';
+        container.querySelectorAll('.stream-tab-panel').forEach(p => {
+          p.style.display = p.dataset.vmid === vmid ? 'block' : 'none';
+        });
+      });
+    });
+
+    // Auto-scroll
+    container.querySelectorAll('pre').forEach(pre => { pre.scrollTop = pre.scrollHeight; });
+  };
+
+  // Register rebuild callback on the session
+  session.rebuildCallback = scheduleRebuild;
+
+  Swal.fire({
+    title: '🖥️ Remote Command (Streaming)',
+    width: 750,
+    html: `<div id="stream-body" style="text-align:left;max-height:65vh;overflow-y:auto;">
+      <div style="padding:20px;text-align:center;color:#888;">
+        <span style="font-size:24px;">⏳</span><br>Connecting to stream...
+      </div>
+    </div>`,
+    showConfirmButton: true,
+    confirmButtonText: 'Close',
+    showCancelButton: !session.doneSummary,
+    cancelButtonText: '⏹️ Stop streaming',
+    cancelButtonColor: '#dc3545',
+    allowOutsideClick: true,
+    didOpen: () => {
+      // Render current state immediately (for re-open case)
+      rebuildModal();
+    },
+    willClose: () => {
+      // Detach view callback — stream continues in background
+      session.rebuildCallback = null;
+      if (rebuildTimer) clearTimeout(rebuildTimer);
+    },
+    preDeny: () => false,
+  }).then(result => {
+    if (result.dismiss === Swal.DismissReason.cancel) {
+      // User chose "Stop streaming" — abort the SSE stream
+      session.abortController.abort();
+      removeSpinnerTask(session.spinnerId);
+      session.error = 'Stopped by user';
+      updateStreamingBadge();
+    }
+  });
+}
+window.openStreamingSessionModal = openStreamingSessionModal;
+
+/**
+ * Show a list of all active/recent streaming sessions so user can re-open any.
+ */
+function showStreamingSessionList() {
+  const sessions = window._cmdStreamSessions;
+  const keys = Object.keys(sessions);
+
+  if (keys.length === 0) {
+    Swal.fire({ icon: 'info', title: 'No Active Sessions', text: 'There are no active or recent command streaming sessions.' });
+    return;
+  }
+
+  const rows = keys.map(reqId => {
+    const s = sessions[reqId];
+    const vmIds = Object.keys(s.vmState);
+    const totalVms = vmIds.length;
+    const completedVms = vmIds.filter(id => ['Completed','Failed','Timeout','Cancelled','Interrupted'].includes(s.vmState[id].status)).length;
+    const isFinished = s.doneSummary !== null;
+    const elapsed = ((Date.now() - s.startTime) / 1000).toFixed(0);
+    const statusIcon = isFinished ? (s.commandError || s.doneSummary.failedVms > 0 ? '⚠️' : '✅') : (s.error ? '❌' : '⏳');
+    const statusText = isFinished ? (s.commandError ? 'Failed' : 'Done') : (s.error ? 'Error' : 'Running');
+
+    return `<tr style="cursor:pointer;" onclick="openStreamingSessionModal('${window.escapeHtml(reqId)}')">
+      <td style="padding:6px 8px;font-size:11px;">${statusIcon} ${statusText}</td>
+      <td style="padding:6px 8px;font-size:11px;font-weight:600;">${window.escapeHtml(s.mciId)}</td>
+      <td style="padding:6px 8px;font-size:11px;">${completedVms}/${totalVms} VMs</td>
+      <td style="padding:6px 8px;font-size:11px;color:#888;">${elapsed}s ago</td>
+      <td style="padding:6px 8px;font-size:10px;color:#aaa;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${window.escapeHtml(reqId)}</td>
+      <td style="padding:6px 8px;">
+        ${!isFinished && !s.error ? `<button onclick="event.stopPropagation(); abortStreamingSession('${window.escapeHtml(reqId)}');" 
+          style="font-size:10px;padding:2px 6px;border:1px solid #dc3545;border-radius:3px;background:#fff;color:#dc3545;cursor:pointer;">Stop</button>` : 
+          `<button onclick="event.stopPropagation(); dismissStreamingSession('${window.escapeHtml(reqId)}');" 
+          style="font-size:10px;padding:2px 6px;border:1px solid #6c757d;border-radius:3px;background:#fff;color:#6c757d;cursor:pointer;">Dismiss</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  Swal.fire({
+    title: '📡 Streaming Command Sessions',
+    width: 700,
+    html: `<div style="text-align:left;">
+      <table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6;">
+        <thead>
+          <tr style="background:#f8f9fa;border-bottom:2px solid #dee2e6;">
+            <th style="padding:6px 8px;font-size:11px;text-align:left;">Status</th>
+            <th style="padding:6px 8px;font-size:11px;text-align:left;">MCI</th>
+            <th style="padding:6px 8px;font-size:11px;text-align:left;">Progress</th>
+            <th style="padding:6px 8px;font-size:11px;text-align:left;">Elapsed</th>
+            <th style="padding:6px 8px;font-size:11px;text-align:left;">Request ID</th>
+            <th style="padding:6px 8px;font-size:11px;text-align:left;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+      <div style="margin-top:8px;font-size:10px;color:#888;">Click a row to open the streaming view. Sessions auto-dismiss 5 minutes after completion.</div>
+    </div>`,
+    showConfirmButton: true,
+    confirmButtonText: 'Close',
+  });
+}
+window.showStreamingSessionList = showStreamingSessionList;
+
+/**
+ * Safely clean up all resources for a streaming session (timers, abort controller, spinner).
+ */
+function cleanupStreamingSession(session) {
+  if (!session) return;
+  if (session._waitingTimer) clearInterval(session._waitingTimer);
+  if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+  session.abortController.abort();
+  removeSpinnerTask(session.spinnerId);
+}
+
+function abortStreamingSession(xRequestId) {
+  const session = window._cmdStreamSessions[xRequestId];
+  if (session) {
+    cleanupStreamingSession(session);
+    delete window._cmdStreamSessions[xRequestId];
+    updateStreamingBadge();
+  }
+  // Refresh the session list if it's open
+  const popup = Swal.getPopup();
+  if (popup && popup.querySelector('table')) {
+    showStreamingSessionList();
+  }
+}
+window.abortStreamingSession = abortStreamingSession;
+
+function dismissStreamingSession(xRequestId) {
+  const session = window._cmdStreamSessions[xRequestId];
+  if (session) {
+    cleanupStreamingSession(session);
+    delete window._cmdStreamSessions[xRequestId];
+    updateStreamingBadge();
+  }
+  const popup = Swal.getPopup();
+  if (popup && popup.querySelector('table')) {
+    showStreamingSessionList();
+  }
+}
+window.dismissStreamingSession = dismissStreamingSession;
+
+/**
+ * Update the floating badge that shows the count of active streaming sessions.
+ * Creates the badge element if it doesn't exist yet.
+ */
+function updateStreamingBadge() {
+  const sessions = window._cmdStreamSessions;
+  const total = Object.keys(sessions).length;
+  const running = Object.values(sessions).filter(s => !s.doneSummary && !s.error && !s.commandError).length;
+
+  let badge = document.getElementById('streaming-sessions-badge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'streaming-sessions-badge';
+    badge.style.cssText = 'position:fixed;bottom:15px;right:20px;z-index:10000;cursor:pointer;display:none;' +
+      'background:linear-gradient(135deg,#0d6efd,#6610f2);color:#fff;border-radius:24px;padding:8px 16px;' +
+      'box-shadow:0 4px 16px rgba(13,110,253,0.4);font-size:12px;font-weight:600;' +
+      'transition:all 0.3s ease;user-select:none;';
+    badge.addEventListener('click', () => showStreamingSessionList());
+    badge.addEventListener('mouseenter', () => { badge.style.transform = 'scale(1.05)'; badge.style.boxShadow = '0 6px 20px rgba(13,110,253,0.5)'; });
+    badge.addEventListener('mouseleave', () => { badge.style.transform = 'scale(1)'; badge.style.boxShadow = '0 4px 16px rgba(13,110,253,0.4)'; });
+    document.body.appendChild(badge);
+  }
+
+  if (total === 0) {
+    badge.style.display = 'none';
+  } else {
+    badge.style.display = 'flex';
+    badge.style.alignItems = 'center';
+    badge.style.gap = '6px';
+    const pulseHtml = running > 0 ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#00ff88;animation:stream-pulse 1.5s infinite;"></span>' : '';
+    badge.innerHTML = `${pulseHtml} 📡 ${running > 0 ? running + ' streaming' : ''} ${total - running > 0 ? (running > 0 ? '· ' : '') + (total - running) + ' done' : ''}`;
+
+    // Inject pulse animation if not already present
+    if (!document.getElementById('stream-pulse-style')) {
+      const style = document.createElement('style');
+      style.id = 'stream-pulse-style';
+      style.textContent = '@keyframes stream-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }';
+      document.head.appendChild(style);
+    }
+  }
+}
+
+/**
+ * Consumes an SSE stream using fetch() + ReadableStream.
+ * This approach (vs EventSource) supports custom Authorization headers for BasicAuth.
+ *
+ * @param {string} url - SSE endpoint URL
+ * @param {string} username - BasicAuth username
+ * @param {string} password - BasicAuth password
+ * @param {AbortController} abortController - Controller to abort the stream
+ * @param {Function} onEvent - Callback invoked with parsed JSON event objects
+ * @returns {Promise<void>}
+ */
+async function consumeSSEStream(url, username, password, abortController, onEvent) {
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Accept': 'text/event-stream',
+      'Authorization': 'Basic ' + btoa(username + ':' + password),
+    },
+    signal: abortController.signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Process complete SSE messages (delimited by double newline)
+    let boundary;
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      const message = buffer.substring(0, boundary);
+      buffer = buffer.substring(boundary + 2);
+
+      // Parse SSE lines
+      for (const line of message.split('\n')) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.substring(6).trim();
+          if (jsonStr) {
+            try {
+              const event = JSON.parse(jsonStr);
+              onEvent(event);
+            } catch (e) {
+              console.warn('Failed to parse SSE event:', jsonStr, e);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 
 async function executeRemoteCmd() {
   var config = getConfig(); var hostname = config.hostname;
@@ -13803,9 +14338,12 @@ async function executeRemoteCmd() {
         var requestId = generateRandomRequestId("cmd-" + selectedMciId + "-", 10);
         addRequestIdToSelect(requestId);
 
+        // Use async mode + SSE streaming for real-time log output
+        var asyncUrl = url + (url.includes('?') ? '&' : '?') + 'async=true';
+
         axios({
           method: "post",
-          url: url,
+          url: asyncUrl,
           headers: { "Content-Type": "application/json", "x-request-id": requestId },
           data: jsonBody,
           auth: {
@@ -13813,8 +14351,20 @@ async function executeRemoteCmd() {
             password: `${password}`,
           },
         }).then((res) => {
-          console.log(res); // for debug
-          showRemoteCmdResult(res.data);
+          console.log('[RemoteCmd] POST response:', 'status=' + res.status, 'hasXRequestId=' + !!(res.data && res.data.xRequestId), 'url=' + asyncUrl, res);
+
+          if (res.status === 202 && res.data && res.data.xRequestId) {
+            // Async mode accepted - start background SSE session and open streaming modal
+            var xReqId = res.data.xRequestId;
+            var streamUrl = `http://${hostname}:${port}/tumblebug/ns/${namespace}/stream/cmd/mci/${selectedMciId}?xRequestId=${encodeURIComponent(xReqId)}`;
+            console.log('[RemoteCmd] Starting streaming session:', xReqId);
+            startStreamingSession(streamUrl, username, password, xReqId, selectedMciId, spinnerId);
+          } else {
+            // Fallback: sync response (async=true not in URL or server returned non-202)
+            console.warn('[RemoteCmd] Sync fallback - status:', res.status, 'data:', res.data);
+            showRemoteCmdResult(res.data);
+            removeSpinnerTask(spinnerId);
+          }
         })
           .catch(function (error) {
             if (error.response) {
@@ -13833,8 +14383,6 @@ async function executeRemoteCmd() {
                 ""
               )
             );
-          })
-          .finally(function () {
             removeSpinnerTask(spinnerId);
           });
 
@@ -15680,7 +16228,7 @@ function executeScaleOut(namespace, mciid, subgroupid, numVMsToAdd, hostname, po
   var url = `http://${hostname}:${port}/tumblebug/ns/${namespace}/mci/${mciid}/subgroup/${subgroupid}`;
   
   var scaleOutReq = {
-    numVMsToAdd: numVMsToAdd.toString()  // Convert to string as expected by API
+    numVMsToAdd: numVMsToAdd
   };
 
   var jsonBody = JSON.stringify(scaleOutReq, undefined, 4);
