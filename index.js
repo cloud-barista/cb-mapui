@@ -110,9 +110,6 @@ useGeographic();
 var i, j;
 var cnti, cntj;
 
-const cntInit = 0;
-var cnt = cntInit;
-
 function getActionAnimation(targetAction) {
   if (!targetAction || targetAction === "None" || targetAction === "") {
     return "";
@@ -146,14 +143,11 @@ function getTargetActionColor(targetAction) {
   }
 }
 
-//var n = 1000;
-var geometries = new Array();
-var geometriesPoints = new Array();
-var mciName = new Array();
-var mciStatus = new Array();
-var mciTargetAction = new Array(); // Store targetAction information for each MCI
-var mciGeo = new Array();
-var locationlessMciIndices = new Array(); // Track indices of MCIs without location (preparing, prepared, failed, empty)
+// Map-based MCI render data store: Map<mciId, MciRenderData>
+// Each entry holds all render data for a single MCI, enabling O(1) add/remove.
+// MciRenderData = { id, name, status, targetAction, geometry, geometryPoints, geo, isLocationless }
+// Note: Use globalThis.Map to avoid collision with OpenLayers' Map import (ol/Map)
+var mciRenderMap = new globalThis.Map();
 
 // Constants for positioning locationless MCIs (preparing, prepared, failed, empty states)
 const LOCATIONLESS_MCI_LEFT_OFFSET = 0.12;    // 12% offset from left edge to prevent name clipping
@@ -465,9 +459,10 @@ var map = new Map({
 function clearMap() {
   debugLog.mapOp("Map cleared - optimized");
   
-  // Clear geometry arrays
-  geometries = [];
-  mciTargetAction = [];
+  // Clear MCI render data
+  mciRenderMap.clear();
+  
+  // Clear resource location data
   geoResourceLocation.k8s = [];
   geoResourceLocation.sg = [];
   geoResourceLocation.sshKey = [];
@@ -477,22 +472,18 @@ function clearMap() {
   // Remove all layers except the base tile layer to prevent memory leaks
   const layersToRemove = [];
   map.getLayers().forEach(function(layer) {
-    if (layer !== tileLayer) { // Keep only the base tile layer
+    if (layer !== tileLayer) {
       layersToRemove.push(layer);
     }
   });
   
-  // Remove the layers
   layersToRemove.forEach(function(layer) {
     map.removeLayer(layer);
-    
-    // Dispose of vector sources to free up memory
     if (layer.getSource && typeof layer.getSource === 'function') {
       const source = layer.getSource();
       if (source && source.clear && typeof source.clear === 'function') {
         source.clear();
       }
-      // Dispose features in vector sources
       if (source && source.getFeatures && typeof source.getFeatures === 'function') {
         const features = source.getFeatures();
         features.forEach(feature => {
@@ -505,8 +496,6 @@ function clearMap() {
   });
 
   debugLog.performance(`Removed ${layersToRemove.length} layers`);
-  
-  // Force garbage collection of map rendering
   map.render();
 }
 window.clearMap = clearMap;
@@ -924,38 +913,31 @@ function findNearestMci(clickCoord) {
   let nearestMci = null;
   let minDistance = Infinity;
   
-  // Convert click coordinate to pixel coordinate for easier calculation
   const clickPixel = map.getPixelFromCoordinate(clickCoord);
   
-  // Search through all MCI geometries
-  for (let i = 0; i < geometries.length; i++) {
-    if (geometries[i] && mciName[i]) {
+  // Search through all MCI entries in the render map
+  for (const [mciId, data] of mciRenderMap) {
+    if (data.geometry && data.name) {
       let mciCoord;
       
-      // Handle different geometry types
-      if (geometries[i].getType() === 'Point') {
-        mciCoord = geometries[i].getCoordinates();
-      } else if (geometries[i].getType() === 'Polygon') {
-        // For polygon, use centroid
-        const extent = geometries[i].getExtent();
+      if (data.geometry.getType() === 'Point') {
+        mciCoord = data.geometry.getCoordinates();
+      } else if (data.geometry.getType() === 'Polygon') {
+        const extent = data.geometry.getExtent();
         mciCoord = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
       }
       
       if (mciCoord) {
-        // Convert MCI coordinate to pixel coordinate
         const mciPixel = map.getPixelFromCoordinate(mciCoord);
         
-        // Calculate text position in pixels (same calculation as in drawObjects)
-        const nameLines = splitMciNameToLines(mciName[i]);
-        const baseScale = changeSizeByName(mciName[i] + mciStatus[i]) + 0.1;
-        const baseOffsetY = 32 * changeSizeByName(mciName[i] + mciStatus[i]);
+        const nameLines = splitMciNameToLines(data.name);
+        const baseScale = changeSizeByName(data.name + data.status) + 0.1;
+        const baseOffsetY = 32 * changeSizeByName(data.name + data.status);
         const lineHeight = 12 * baseScale;
         
-        // Calculate the center of the text block
         const textCenterY = mciPixel[1] + baseOffsetY + (nameLines.length * lineHeight / 2);
         const textPixel = [mciPixel[0], textCenterY];
         
-        // Calculate distance in pixels
         const dx = clickPixel[0] - textPixel[0];
         const dy = clickPixel[1] - textPixel[1];
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -963,9 +945,9 @@ function findNearestMci(clickCoord) {
         if (distance < minDistance) {
           minDistance = distance;
           nearestMci = {
-            name: mciName[i],
-            status: mciStatus[i],
-            index: i,
+            name: data.name,
+            status: data.status,
+            id: mciId,
             distance: distance
           };
         }
@@ -973,7 +955,6 @@ function findNearestMci(clickCoord) {
     }
   }
   
-  // Only return if MCI is reasonably close (within 100 pixels)
   return (minDistance < 100) ? nearestMci : null;
 }
 
@@ -1953,20 +1934,16 @@ function makeTria(ip1, ip2, ip3) {
   changePoints(ip1, ip2);
   changePoints(ip2, ip3);
   changePoints(ip3, ip1);
-
-  geometries[cnt] = new Polygon([[ip1, ip2, ip3, ip1]]);
-  //cnt++;
+  // makeTria is legacy/unused — kept for reference
 }
 
-function makePolyDot(vmPoints, vmStatuses = [], vmProviders = [], vmCommandStatuses = []) {
+// Build VM dot geometry data for an MCI entry in mciRenderMap
+function makePolyDot(mciEntry, vmPoints, vmStatuses = [], vmProviders = [], vmCommandStatuses = []) {
   var resourcePoints = [];
-
   for (i = 0; i < vmPoints.length; i++) {
     resourcePoints.push(vmPoints[i]);
   }
-
-  // Store geometry and VM metadata including provider info and command status in the geometriesPoints
-  geometriesPoints[cnt] = {
+  mciEntry.geometryPoints = {
     geometry: new MultiPoint(resourcePoints),
     vmPoints: vmPoints,
     vmStatuses: vmStatuses,
@@ -1975,25 +1952,15 @@ function makePolyDot(vmPoints, vmStatuses = [], vmProviders = [], vmCommandStatu
   };
 }
 
-function makePolyArray(vmPoints) {
-  //for (i = 0; i < vmPoints.length; i++) {
-  //coordinates.push(vmPoints[i]);
-  //}
-
+// Build polygon geometry for an MCI entry in mciRenderMap
+function makePolyArray(mciEntry, vmPoints) {
   var resourcePoints = [];
-
   for (i = 0; i < vmPoints.length; i++) {
     resourcePoints.push(vmPoints[i]);
   }
-
-  //geometriesPoints[cnt] = new MultiPoint(resourcePoints);
-
   resourcePoints.push(vmPoints[0]);
-
-  geometries[cnt] = new Polygon([resourcePoints]);
-
-  mciGeo[cnt] = new Polygon([resourcePoints]);
-  //cnt++;
+  mciEntry.geometry = new Polygon([resourcePoints]);
+  mciEntry.geo = new Polygon([resourcePoints]);
 }
 
 function cross(a, b, o) {
@@ -2770,18 +2737,16 @@ function displayJsonData(jsonData, type) {
 }
 
 // Handle MCI without VMs (preparing, prepared, empty states)
-function handleMciWithoutVms(mciItem, cnt) {
+function handleMciWithoutVms(mciItem) {
   // Get current map extent to position MCIs in upper-left area
   var mapView = map.getView();
   var mapExtent = mapView.calculateExtent(map.getSize());
   
-  // Position MCIs in the upper-left quadrant of the visible map area
-  var leftBound = mapExtent[0]; // minimum longitude
-  var rightBound = mapExtent[2]; // maximum longitude  
-  var bottomBound = mapExtent[1]; // minimum latitude
-  var topBound = mapExtent[3]; // maximum latitude
+  var leftBound = mapExtent[0];
+  var rightBound = mapExtent[2];
+  var bottomBound = mapExtent[1];
+  var topBound = mapExtent[3];
   
-  // Calculate upper-left position (offset from the edge for better visibility)
   var defaultLon = leftBound + (rightBound - leftBound) * LOCATIONLESS_MCI_LEFT_OFFSET;
   var defaultLat = topBound - (topBound - bottomBound) * LOCATIONLESS_MCI_TOP_OFFSET;
 
@@ -2800,49 +2765,34 @@ function handleMciWithoutVms(mciItem, cnt) {
     }
   }
   
-  // Add vertical offset to avoid overlapping if multiple preparing MCIs exist
-  // Stack them vertically downward from the upper-left position
+  // Count existing locationless MCIs for vertical stacking
   var verticalSpacing = (topBound - bottomBound) * LOCATIONLESS_MCI_VERTICAL_SPACING;
   var preparingMciCount = 0;
-  
-  // Count how many preparing/prepared/empty/failed MCIs we already have to determine stacking position
-  for (var k = 0; k < cnt; k++) {
-    if (mciStatus[k] && (mciStatus[k] === "Preparing" || mciStatus[k] === "Prepared" || mciStatus[k] === "Failed" || mciStatus[k].includes("Empty"))) {
+  for (const [, data] of mciRenderMap) {
+    if (data.isLocationless) {
       preparingMciCount++;
     }
   }
-  
-  // Apply vertical offset based on the count of existing preparing MCIs
   defaultLat -= verticalSpacing * preparingMciCount;
   
-  // Create a simple point geometry for text positioning (no background shape)
-  geometries[cnt] = new Point([defaultLon, defaultLat]);
-  mciGeo[cnt] = new Point([defaultLon, defaultLat]);
-  
-  // Register this MCI for dynamic position updates on map move
-  locationlessMciIndices.push({ index: cnt, stackPosition: preparingMciCount });
-  
-  // Store MCI status
-  mciStatus[cnt] = mciItem.status;
-  
-  // Set MCI name
   var newName = mciItem.name;
   if (newName.includes("-nlb")) {
     newName = "NLB";
   }
   
-  // Store only the clean name
-  mciName[cnt] = newName;
-  
-  // Store targetAction information separately
-  mciTargetAction[cnt] = (mciItem.targetAction && mciItem.targetAction !== "None" && mciItem.targetAction !== "") 
-    ? mciItem.targetAction : null;
-  
-  // Do not create VM points for preparing/prepared MCI (no actual VMs exist)
-  geometriesPoints[cnt] = null;
-  
-  // Debug: uncomment if needed
-  // console.log(`Added placeholder geometry for MCI ${mciItem.name} with status ${mciItem.status}`);
+  // Create MCI render entry and store in map
+  var mciEntry = {
+    id: mciItem.id,
+    name: newName,
+    status: mciItem.status,
+    targetAction: (mciItem.targetAction && mciItem.targetAction !== "None" && mciItem.targetAction !== "") 
+      ? mciItem.targetAction : null,
+    geometry: new Point([defaultLon, defaultLat]),
+    geometryPoints: null,
+    geo: new Point([defaultLon, defaultLat]),
+    isLocationless: true
+  };
+  mciRenderMap.set(mciItem.id, mciEntry);
 }
 
 function getMci() {
@@ -2915,16 +2865,12 @@ function getMci() {
         // Also load K8s cluster data for dashboard
         loadK8sClusterData();
 
-        cnt = cntInit;
-        
-        // Reset locationless MCI tracking for new data load
-        locationlessMciIndices = [];
+        // Rebuild mciRenderMap from fresh API data
+        mciRenderMap.clear();
         
         if (obj.mci != null && obj.mci.length > 0) {
           debugLog.api(`Processing ${obj.mci.length} MCIs for map display`);
           for (let item of obj.mci) {
-            // Debug: uncomment for detailed MCI inspection
-            // console.log(item);
 
             var hideFlag = false;
             for (let hideName of mciHideList) {
@@ -2939,11 +2885,8 @@ function getMci() {
 
             // Handle MCI without VMs (preparing, prepared, empty, failed states)
             if (item.vm == null || item.vm.length === 0) {
-              // Debug: uncomment if needed
-              // console.log("MCI without VMs:", item);
               if (item.status === "Preparing" || item.status === "Prepared" || item.status === "Failed" || item.status.includes("Empty")) {
-                handleMciWithoutVms(item, cnt);
-                cnt++;
+                handleMciWithoutVms(item);
               }
               continue;
             }
@@ -2952,14 +2895,12 @@ function getMci() {
 
             var validateNum = 0;
             for (j = 0; j < item.vm.length; j++) {
-              // Safely extract VM coordinates for vmGeo
               const vm = item.vm[j];
               if (!vm.location || vm.location.longitude === undefined || vm.location.latitude === undefined) {
                 console.warn(`VM ${vm.id || j}: missing location data, skipping`);
                 continue;
               }
               
-              //vmGeo.push([(item.vm[j].location.longitude*1) + (Math.round(Math.random()) / zoomLevel - 1) * Math.random()*1, (item.vm[j].location.latitude*1) + (Math.round(Math.random()) / zoomLevel - 1) * Math.random()*1 ])
               if (j == 0) {
                 vmGeo.push([
                   vm.location.longitude * 1,
@@ -2984,7 +2925,6 @@ function getMci() {
               validateNum++;
             }
             if (item.vm.length == 1) {
-              // handling if there is only one vm so that we can not draw geometry
               vmGeo.pop();
               vmGeo.push([
                 item.vm[0].location.longitude * 1,
@@ -3000,46 +2940,40 @@ function getMci() {
               ]);
             }
             if (validateNum == item.vm.length) {
-              // Store VM-specific data for makePolyDot
               var vmStatuses = [];
               var vmProviders = [];
-              var vmCommandStatuses = []; // Add command status array
+              var vmCommandStatuses = [];
               var vmPoints = [];
               
               for (let vmIndex = 0; vmIndex < item.vm.length; vmIndex++) {
                 const vm = item.vm[vmIndex];
                 
-                // Debug: Log only the first VM structure to avoid spam
                 if (vmIndex === 0) {
                   debugLog.vm(`VM ${vm.id || 'unknown'} structure:`, vm);
                 }
                 
                 vmStatuses.push(vm.status || "Undefined");
                 
-                // Check command status for "Queued" or "Handling"
                 let commandStatus = "None";
                 if (vm.commandStatus) {
                   const queuedCmd = vm.commandStatus.find(cmd => cmd.status === "Queued");
                   const handlingCmd = vm.commandStatus.find(cmd => cmd.status === "Handling");
                   
                   if (handlingCmd) {
-                    commandStatus = "Handling"; // Handling has priority over Queued
+                    commandStatus = "Handling";
                   } else if (queuedCmd) {
                     commandStatus = "Queued";
                   }
                 }
                 vmCommandStatuses.push(commandStatus);
                 
-                // Debug: Log command status for first VM
                 if (vmIndex === 0 && vm.commandStatus) {
                   debugLog.vm(`VM ${vm.id || 'unknown'} commandStatus:`, vm.commandStatus);
                   debugLog.vm(`VM ${vm.id} command status:`, commandStatus);
                 }
                 
-                // Extract provider from connectionConfig (full API response)
                 let provider = "unknown";
                 
-                // Debug: Log connection-related properties for first VM only
                 if (vmIndex === 0) {
                   debugLog.vm(`VM ${vm.id}: connectionName =`, vm.connectionName);
                   debugLog.vm(`VM ${vm.id}: connectionConfig =`, vm.connectionConfig);
@@ -3049,7 +2983,6 @@ function getMci() {
                   provider = vm.connectionConfig.providerName;
                   if (vmIndex === 0) debugLog.vm(`VM ${vm.id}: found provider in connectionConfig = ${provider}`);
                 } else if (vm.connectionName) {
-                  // Fallback: extract provider from connectionName (e.g., "aws-ap-northeast-2" -> "aws")
                   provider = vm.connectionName.split('-')[0];
                   if (vmIndex === 0) debugLog.vm(`VM ${vm.id}: extracted provider from connectionName = ${provider}`);
                 } else {
@@ -3061,7 +2994,6 @@ function getMci() {
                 
                 vmProviders.push(provider);
                 
-                // Use the same coordinates as vmGeo for consistency
                 if (vmIndex == 0) {
                   vmPoints.push([vm.location.longitude * 1, vm.location.latitude * 1]);
                 } else {
@@ -3077,41 +3009,35 @@ function getMci() {
                 }
               }
 
-              //make dots without convexHull - now includes VM status and provider info
-              makePolyDot(vmGeo, vmStatuses, vmProviders, vmCommandStatuses);
-              vmGeo = convexHull(vmGeo);
-
-              mciStatus[cnt] = item.status;
-
               var newName = item.name;
               if (newName.includes("-nlb")) {
                 newName = "NLB";
               }
 
-              // Store only the clean name
-              mciName[cnt] = newName;
-              
-              // Store targetAction information separately
-              mciTargetAction[cnt] = (item.targetAction && item.targetAction !== "None" && item.targetAction !== "") 
-                ? item.targetAction : null;
+              // Create MCI render entry
+              var mciEntry = {
+                id: item.id,
+                name: newName,
+                status: item.status,
+                targetAction: (item.targetAction && item.targetAction !== "None" && item.targetAction !== "") 
+                  ? item.targetAction : null,
+                geometry: null,
+                geometryPoints: null,
+                geo: null,
+                isLocationless: false
+              };
 
-              //make poly with convexHull
-              makePolyArray(vmGeo);
+              // Build VM dots and polygon geometry into the entry
+              makePolyDot(mciEntry, vmGeo, vmStatuses, vmProviders, vmCommandStatuses);
+              vmGeo = convexHull(vmGeo);
+              makePolyArray(mciEntry, vmGeo);
 
-              cnt++;
+              mciRenderMap.set(item.id, mciEntry);
             }
           }
         } else {
-          // Clear all MCI-related data when list is empty or null
+          // No MCI data — map is already cleared above
           console.log("No MCI data found, clearing map objects");
-          geometries = [];
-          geometriesPoints = [];
-          mciName = [];
-          mciStatus = [];
-          mciGeo = [];
-          locationlessMciIndices = []; // Clear locationless MCI tracking
-          
-          // Force map re-render to show empty state
           map.render();
         }
       })
@@ -3657,6 +3583,10 @@ function checkConnectionWithRetry() {
 
         // Process the connection data (use existing logic)
         processConnectionData(connData);
+
+        // Load namespace list and MCI data now that server is ready
+        updateNsList();
+        getMci();
 
         // Close popup after showing success message
         setTimeout(() => {
@@ -9867,7 +9797,9 @@ function deleteMCI() {
     .then((res) => {
       console.log(res);
       displayJsonData(res.data, typeInfo);
-      clearMap();
+      // Targeted removal: only remove the deleted MCI from the render map
+      mciRenderMap.delete(mciid);
+      map.render();
       updateMciList();
     })
     .catch(function (error) {
@@ -9908,11 +9840,27 @@ function releaseResources() {
       updateNsList();
 
       console.log(res); // for debug
-      displayJsonData(res.data, typeInfo);
+
+      var data = res.data;
+      // Show summary using structured response (total, successCount, failedCount, results[])
+      if (data && typeof data.total === "number") {
+        var summary = `Total: ${data.total}, Success: ${data.successCount}, Failed: ${data.failedCount}`;
+        if (data.failedCount > 0) {
+          var failedItems = (data.results || []).filter(function (r) { return !r.success; });
+          var failedDetail = failedItems
+            .map(function (r) { return r.resourceType + ": " + r.resourceId + " (" + r.message + ")"; })
+            .join("\n");
+          console.warn("Failed resource deletions:\n" + failedDetail);
+          errorAlert("Release resources completed with failures\n" + summary);
+        } else {
+          successAlert("All resources released successfully (" + data.total + ")");
+        }
+      }
+
+      displayJsonData(data, typeInfo);
     })
     .finally(function () {
       removeSpinnerTask(spinnerId);
-      clearMap();
     });
 }
 window.releaseResources = releaseResources;
@@ -17106,30 +17054,25 @@ function executeMciScaleOut(namespace, mciId, subGroupName, vmCountPerLocation, 
 
 // Draw Objects to the Map
 function drawObjects(event) {
-  //event.frameState = event.frameState / 10;
-  //console.log("event.frameState");
-  //console.log(event.frameState);
 
   // Update locationless MCI positions in real-time for smooth animation
-  // This is lightweight as it only involves simple coordinate calculations
-  if (locationlessMciIndices.length > 0) {
-    var mapView = map.getView();
-    var mapExtent = mapView.calculateExtent(map.getSize());
-    
-    var leftBound = mapExtent[0];
-    var rightBound = mapExtent[2];
-    var bottomBound = mapExtent[1];
-    var topBound = mapExtent[3];
-    
-    var verticalSpacing = (topBound - bottomBound) * LOCATIONLESS_MCI_VERTICAL_SPACING;
-    
-    for (var idx = 0; idx < locationlessMciIndices.length; idx++) {
-      var item = locationlessMciIndices[idx];
-      var defaultLon = leftBound + (rightBound - leftBound) * LOCATIONLESS_MCI_LEFT_OFFSET;
-      var defaultLat = topBound - (topBound - bottomBound) * LOCATIONLESS_MCI_TOP_OFFSET;
-      defaultLat -= verticalSpacing * idx;
-      
-      geometries[item.index].setCoordinates([defaultLon, defaultLat]);
+  // Calculate map view bounds once outside the loop to avoid redundant calculations per frame
+  var mapView = map.getView();
+  var mapExtent = mapView.calculateExtent(map.getSize());
+  var leftBound = mapExtent[0];
+  var rightBound = mapExtent[2];
+  var bottomBound = mapExtent[1];
+  var topBound = mapExtent[3];
+  var verticalSpacing = (topBound - bottomBound) * LOCATIONLESS_MCI_VERTICAL_SPACING;
+  var defaultLon = leftBound + (rightBound - leftBound) * LOCATIONLESS_MCI_LEFT_OFFSET;
+  var baseDefaultLat = topBound - (topBound - bottomBound) * LOCATIONLESS_MCI_TOP_OFFSET;
+
+  var locationlessIdx = 0;
+  for (const [, data] of mciRenderMap) {
+    if (data.isLocationless) {
+      var defaultLat = baseDefaultLat - verticalSpacing * locationlessIdx;
+      data.geometry.setCoordinates([defaultLon, defaultLat]);
+      locationlessIdx++;
     }
   }
 
@@ -17157,20 +17100,25 @@ function drawObjects(event) {
     }
   });
 
-  // Draw MCI Geometry
-  for (i = geometries.length - 1; i >= 0; --i) {
-    var polyStyle = new Style({
-      stroke: new Stroke({
-        width: 1,
-        color: cororLineList[i % cororList.length],
-      }),
-      fill: new Fill({
-        color: cororList[i % cororList.length],
-      }),
-    });
-
-    vectorContext.setStyle(polyStyle);
-    vectorContext.drawGeometry(geometries[i]);
+  // Draw MCI Geometry (polygons and points from mciRenderMap)
+  {
+    let colorIdx = 0;
+    for (const [, data] of mciRenderMap) {
+      if (data.geometry) {
+        var polyStyle = new Style({
+          stroke: new Stroke({
+            width: 1,
+            color: cororLineList[colorIdx % cororList.length],
+          }),
+          fill: new Fill({
+            color: cororList[colorIdx % cororList.length],
+          }),
+        });
+        vectorContext.setStyle(polyStyle);
+        vectorContext.drawGeometry(data.geometry);
+        colorIdx++;
+      }
+    }
   }
 
   // Draw K8s Cluster Group Geometry (clusters with same clustergroup label)
@@ -17253,8 +17201,8 @@ function drawObjects(event) {
   }
 
   // Draw MCI Points and Individual VM Status Badges
-  for (i = geometries.length - 1; i >= 0; --i) {
-    const geometryPoint = geometriesPoints[i];
+  for (const [, data] of mciRenderMap) {
+    const geometryPoint = data.geometryPoints;
     
     // Skip if no geometry point (e.g., preparing/prepared MCI)
     if (!geometryPoint) {
@@ -17263,11 +17211,9 @@ function drawObjects(event) {
     
     // Check if geometryPoint has the new structure with VM data
     if (geometryPoint && typeof geometryPoint === 'object' && geometryPoint.geometry) {
-      // New structure: Draw individual VMs with status badges and provider icons
       const { geometry, vmPoints, vmStatuses, vmProviders, vmCommandStatuses } = geometryPoint;
-      const vmBaseScale = changeSizeStatus(mciName[i] + mciStatus[i]);
+      const vmBaseScale = changeSizeStatus(data.name + data.status);
       
-      // Draw individual VM icons with status badges and provider icons
       if (vmPoints && vmStatuses) {
         vmStatuses.forEach((vmStatus, vmIndex) => {
           if (vmPoints[vmIndex]) {
@@ -17276,9 +17222,7 @@ function drawObjects(event) {
             const commandStatus = vmCommandStatuses ? vmCommandStatuses[vmIndex] : "None";
             const vmStyles = createVmStyleWithStatusBadge(vmStatus, vmProvider, vmBaseScale, vmCoords, commandStatus);
             
-            // Test displacement approach - apply all styles to same geometry
             const vmPoint = new Point(vmCoords);
-            
             vmStyles.forEach(style => {
               vectorContext.setStyle(style);
               vectorContext.drawGeometry(vmPoint);
@@ -17288,16 +17232,13 @@ function drawObjects(event) {
       }
     } else {
       // Legacy structure: Draw single MCI icon (fallback)
-      if (mciName[i].includes("NLB")) {
+      if (data.name.includes("NLB")) {
         vectorContext.setStyle(iconStyleNlb);
       } else {
         vectorContext.setStyle(iconStyleVm);
       }
-      
-      // Handle legacy geometry structure
-      const legacyGeometry = geometryPoint || geometriesPoints[i];
-      if (legacyGeometry) {
-        vectorContext.drawGeometry(legacyGeometry);
+      if (geometryPoint) {
+        vectorContext.drawGeometry(geometryPoint);
       }
     }
   }
@@ -17360,72 +17301,70 @@ function drawObjects(event) {
     }
   }
 
-  for (i = geometries.length - 1; i >= 0; --i) {
-    // MCI text style with multi-line support
-    const nameLines = splitMciNameToLines(mciName[i]);
-    const baseScale = changeSizeByName(mciName[i] + mciStatus[i]) + 0.1;
-    const baseOffsetY = 32 * changeSizeByName(mciName[i] + mciStatus[i]);
-    const lineHeight = 12 * baseScale; // Spacing between lines
-    
-    // Draw each line of the MCI name
-    nameLines.forEach((line, lineIndex) => {
-      let displayText = line;
+  // Draw MCI name text
+  {
+    let mciDrawIdx = 0;
+    for (const [, data] of mciRenderMap) {
+      const nameLines = splitMciNameToLines(data.name);
+      const baseScale = changeSizeByName(data.name + data.status) + 0.1;
+      const baseOffsetY = 32 * changeSizeByName(data.name + data.status);
+      const lineHeight = 12 * baseScale;
       
-      // Add animation only to the first line if targetAction is active
-      if (lineIndex === 0 && mciTargetAction[i]) {
-        const spinChars = ['⠿', '⠷', '⠯', '⠟', '⠻', '⠽', '⠾', '⠷','⠿'];
-        const animIndex = Math.floor(drawCounter / 10 + i) % spinChars.length;
-        displayText = spinChars[animIndex] + ' ' + displayText;
-      }
-      
-      // Get text color - use targetAction color for spinner lines, black for others
-      const textColor = (lineIndex === 0 && mciTargetAction[i]) 
-        ? getTargetActionColor(mciTargetAction[i])
-        : [0, 0, 0, 1]; // black for default
-      
-      var polyNameTextStyle = new Style({
-        text: new Text({
-          text: displayText,
-          font: "bold 10px sans-serif",
-          scale: baseScale,
-          offsetY: baseOffsetY + (lineIndex * lineHeight), // Offset each line down
-          stroke: new Stroke({
-            color: [255, 255, 255, 1], //white
-            width: 1,
+      nameLines.forEach((line, lineIndex) => {
+        let displayText = line;
+        
+        if (lineIndex === 0 && data.targetAction) {
+          const spinChars = ['⠿', '⠷', '⠯', '⠟', '⠻', '⠽', '⠾', '⠷','⠿'];
+          const animIndex = Math.floor(drawCounter / 10 + mciDrawIdx) % spinChars.length;
+          displayText = spinChars[animIndex] + ' ' + displayText;
+        }
+        
+        const textColor = (lineIndex === 0 && data.targetAction) 
+          ? getTargetActionColor(data.targetAction)
+          : [0, 0, 0, 1];
+        
+        var polyNameTextStyle = new Style({
+          text: new Text({
+            text: displayText,
+            font: "bold 10px sans-serif",
+            scale: baseScale,
+            offsetY: baseOffsetY + (lineIndex * lineHeight),
+            stroke: new Stroke({
+              color: [255, 255, 255, 1],
+              width: 1,
+            }),
+            fill: new Fill({
+              color: textColor,
+            }),
           }),
-          fill: new Fill({
-            color: textColor,
-          }),
-        }),
-      });
+        });
 
-      vectorContext.setStyle(polyNameTextStyle);
-      vectorContext.drawGeometry(geometries[i]);
-    });
+        vectorContext.setStyle(polyNameTextStyle);
+        vectorContext.drawGeometry(data.geometry);
+      });
+      mciDrawIdx++;
+    }
   }
 
   // Draw MCI status text
-  for (i = geometries.length - 1; i >= 0; --i) {
-    const statusColors = getVmStatusColor(mciStatus[i]);
+  for (const [, data] of mciRenderMap) {
+    const statusColors = getVmStatusColor(data.status);
     
-    // Calculate dynamic offset for status text based on MCI name lines
-    const nameLines = splitMciNameToLines(mciName[i]);
-    const baseScale = changeSizeByName(mciName[i] + mciStatus[i]) + 0.1;
+    const nameLines = splitMciNameToLines(data.name);
+    const baseScale = changeSizeByName(data.name + data.status) + 0.1;
     const lineHeight = 12 * baseScale;
     const nameHeight = nameLines.length * lineHeight;
-    const statusOffsetY = 32 * changeSizeByName(mciName[i] + mciStatus[i]) + nameHeight + 8; // 8px gap between name and status
+    const statusOffsetY = 32 * changeSizeByName(data.name + data.status) + nameHeight + 8;
     
-    // MCI status style
     var polyStatusTextStyle = new Style({
-      // MCI status text style
       text: new Text({
-        text: mciStatus[i],
+        text: data.status,
         font: "bold 10px sans-serif",
-        scale: changeSizeStatus(mciName[i] + mciStatus[i]),
+        scale: changeSizeStatus(data.name + data.status),
         offsetY: statusOffsetY,
         stroke: new Stroke({
           color: statusColors.stroke,
-          width: 2, // Slightly thicker stroke for better readability
+          width: 2,
         }),
         fill: new Fill({
           color: statusColors.fill,
@@ -17433,7 +17372,7 @@ function drawObjects(event) {
       }),
     });
     vectorContext.setStyle(polyStatusTextStyle);
-    vectorContext.drawGeometry(geometries[i]);
+    vectorContext.drawGeometry(data.geometry);
   }
 
   // Draw K8s Cluster Group labels (drawn last to appear on top of polygons)
