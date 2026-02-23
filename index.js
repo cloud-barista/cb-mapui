@@ -11893,7 +11893,7 @@ function setDefaultRemoteCommandsByApp(appName) {
     case "Nvidia":
       // Install NVIDIA CUDA driver with Container Toolkit
       // Note: System will automatically reboot after installation
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installCudaDriver.sh | bash";
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installGpuDriver.sh | bash";
       defaultRemoteCommand[1] = "echo '[INFO] GPU driver installation started. System will reboot automatically in ~5 seconds after completion.'";
       defaultRemoteCommand[2] = "echo '[INFO] After reboot, verify with: nvidia-smi'";
       break;
