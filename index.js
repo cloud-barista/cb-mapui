@@ -12295,14 +12295,14 @@ window.predefinedScriptCategories = {
     scripts: [
       { value: 'Setup-WireGuard', label: '0. Setup WireGuard VPN', step: 0, optional: true },
       { value: 'K8sControlPlane-Deploy', label: '1. Deploy Control Plane', step: 1, targetLabel: 'role=control' },
-      { value: 'K8sGetJoinCommand', label: '2. Get Join Command', step: 2, targetLabel: 'role=control' },
-      { value: 'K8sGetKubeconfig', label: '3. Get Kubeconfig (Base64)', step: 3, targetLabel: 'role=control' },
+      { value: 'K8sGetJoinCommand', label: '2. Get Join Command', step: 2, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sGetKubeconfig', label: '3. Get Kubeconfig (Base64)', step: 3, targetLabel: 'role=control', syncMode: true },
       { value: 'Nvidia', label: '4. Install GPU Driver', step: 4, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'RebootVM', label: '5. Reboot VM', step: 5, optional: true, targetLabel: 'role=node' },
       { value: 'Nvidia-Status', label: '6. Check GPU Driver', step: 6, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'K8sWorker-Deploy', label: '7. Deploy Worker', step: 7, targetLabel: 'role=node' },
-      { value: 'K8sClusterStatus', label: '8. Check Cluster Status', step: 8, targetLabel: 'role=control' },
-      { value: 'K8sGpuStatus', label: '9. Check GPU Status', step: 9, optional: true, targetLabel: 'accelerator=gpu' }
+      { value: 'K8sClusterStatus', label: '8. Check Cluster Status', step: 8, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sGpuStatus', label: '9. Check GPU Status', step: 9, optional: true, targetLabel: 'accelerator=gpu', syncMode: true }
     ]
   },
   'k8s-llmd': {
@@ -12311,16 +12311,16 @@ window.predefinedScriptCategories = {
     scripts: [
       { value: 'Setup-WireGuard', label: '0. Setup WireGuard VPN', step: 0, optional: true },
       { value: 'K8sLlmdControlPlane', label: '1. Deploy Control Plane (llm-d)', step: 1, targetLabel: 'role=control' },
-      { value: 'K8sGetJoinCommand', label: '2. Get Join Command', step: 2, targetLabel: 'role=control' },
-      { value: 'K8sGetKubeconfig', label: '3. Get Kubeconfig (Base64)', step: 3, targetLabel: 'role=control' },
+      { value: 'K8sGetJoinCommand', label: '2. Get Join Command', step: 2, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sGetKubeconfig', label: '3. Get Kubeconfig (Base64)', step: 3, targetLabel: 'role=control', syncMode: true },
       { value: 'Nvidia', label: '4. Install GPU Driver', step: 4, targetLabel: 'accelerator=gpu' },
       { value: 'RebootVM', label: '5. Reboot VM', step: 5, targetLabel: 'role=node' },
       { value: 'Nvidia-Status', label: '6. Check GPU Driver', step: 6, targetLabel: 'accelerator=gpu' },
       { value: 'K8sWorker-Deploy', label: '7. Deploy Worker', step: 7, targetLabel: 'role=node' },
-      { value: 'K8sClusterStatus', label: '8. Check Cluster Status', step: 8, targetLabel: 'role=control' },
-      { value: 'LlmdCheck', label: '9. Check llm-d Prerequisites', step: 9, targetLabel: 'role=control' },
+      { value: 'K8sClusterStatus', label: '8. Check Cluster Status', step: 8, targetLabel: 'role=control', syncMode: true },
+      { value: 'LlmdCheck', label: '9. Check llm-d Prerequisites', step: 9, targetLabel: 'role=control'},
       { value: 'LlmdDeployWithModel', label: '10. Deploy llm-d with Model', step: 10, targetLabel: 'role=control' },
-      { value: 'LlmdStatus', label: '11. Check llm-d Status', step: 11, targetLabel: 'role=control' }
+      { value: 'LlmdStatus', label: '11. Check llm-d Status', step: 11, targetLabel: 'role=control', syncMode: true }
     ]
   },
   'ml-ray': {
@@ -12402,13 +12402,16 @@ window.predefinedScriptCategories = {
       // Only add if not already seen (avoid duplicates)
       if (!seenScripts[script.value]) {
         seenScripts[script.value] = true;
-        allScriptsArray.push({
+        var entry = {
           value: script.value,
           label: script.label,
           step: script.step,
           optional: script.optional,
           category: cat.label
-        });
+        };
+        if (script.targetLabel) entry.targetLabel = script.targetLabel;
+        if (script.syncMode) entry.syncMode = script.syncMode;
+        allScriptsArray.push(entry);
       }
     }
   }
@@ -13170,6 +13173,9 @@ window.loadPredefinedScript = function () {
 
   // Auto-set label selector based on script's targetLabel (if available)
   window.applyScriptTargetLabel(scriptType);
+
+  // Auto-toggle sync mode based on script's syncMode property
+  window.applyScriptSyncMode(scriptType);
 };
 
 // Apply targetLabel from predefined script to Label Selector
@@ -13224,6 +13230,40 @@ window.applyScriptTargetLabel = function(scriptValue) {
   if (window.updateAvailableLabelChipStyles) window.updateAvailableLabelChipStyles();
   
   console.log(`Auto-set label selector: ${targetLabel} (from script: ${scriptValue})`);
+};
+
+// Auto-toggle sync mode checkbox based on script's syncMode property
+window.applyScriptSyncMode = function(scriptValue) {
+  const syncToggle = document.getElementById('syncModeToggle');
+  if (!syncToggle) return;
+
+  if (!scriptValue) {
+    syncToggle.checked = false;
+    return;
+  }
+
+  // Find the script definition with syncMode
+  const currentCategory = window._currentScriptCategory;
+  let hasSyncMode = false;
+
+  const categoriesToSearch = currentCategory
+    ? [currentCategory, ...Object.keys(window.predefinedScriptCategories).filter(k => k !== currentCategory)]
+    : Object.keys(window.predefinedScriptCategories);
+
+  for (const catKey of categoriesToSearch) {
+    const cat = window.predefinedScriptCategories[catKey];
+    if (!cat || !cat.scripts) continue;
+    const script = cat.scripts.find(s => s.value === scriptValue);
+    if (script) {
+      hasSyncMode = !!script.syncMode;
+      break;
+    }
+  }
+
+  syncToggle.checked = hasSyncMode;
+  if (hasSyncMode) {
+    console.log(`Auto-enabled sync mode for script: ${scriptValue}`);
+  }
 };
 
 // ============================================================
@@ -14219,6 +14259,20 @@ async function executeRemoteCmd() {
       <!-- Label Selector Section (generated by helper function) -->
       ${window.generateLabelSelectorHtml(true, true)}
 
+      <!-- Execution Options -->
+      <div class="popup-section">
+        <div class="popup-section-title">⚙️ Execution Options</div>
+        <div class="popup-row">
+          <div class="popup-col" style="flex: 1;">
+            <label class="popup-inline" style="font-size: 0.8rem; cursor: pointer;">
+              <input type="checkbox" id="syncModeToggle">
+              <span>Sync Response</span>
+              <span style="font-size: 0.65rem; color: #888; margin-left: 4px;">(wait for result &amp; show as formatted view)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- Task Management -->
       <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; text-align: right;">
         <button type="button" onclick="showTaskManagementModal()" 
@@ -14240,7 +14294,8 @@ async function executeRemoteCmd() {
       const commands = collectCommands();
       const selectedMci = document.getElementById("mciSelector").value;
       const timeout = parseInt(document.getElementById("timeoutMinutes").value) || 30;
-      return { commands, selectedMci, timeout };
+      const syncMode = document.getElementById("syncModeToggle")?.checked || false;
+      return { commands, selectedMci, timeout, syncMode };
     },
   }).then((result) => {
       // result.value is false if result.isDenied or another key such as result.isDismissed
@@ -14248,6 +14303,7 @@ async function executeRemoteCmd() {
         const selectedMciId = result.value.selectedMci;
         // Validate timeout is within allowed range (1-120 minutes)
         const timeoutMinutes = Math.max(1, Math.min(120, parseInt(result.value.timeout, 10) || 30));
+        const useSyncMode = result.value.syncMode;
         
         // Handle radio button value
         const radioValue = Swal.getPopup().querySelector(
@@ -14286,37 +14342,24 @@ async function executeRemoteCmd() {
         var requestId = generateRandomRequestId("cmd-" + selectedMciId + "-", 10);
         addRequestIdToSelect(requestId);
 
-        // Use async mode + SSE streaming for real-time log output
-        var asyncUrl = url + (url.includes('?') ? '&' : '?') + 'async=true';
-
-        axios({
-          method: "post",
-          url: asyncUrl,
-          headers: { "Content-Type": "application/json", "x-request-id": requestId },
-          data: jsonBody,
-          auth: {
-            username: `${username}`,
-            password: `${password}`,
-          },
-        }).then((res) => {
-          console.log('[RemoteCmd] POST response:', 'status=' + res.status, 'hasXRequestId=' + !!(res.data && res.data.xRequestId), 'url=' + asyncUrl, res);
-
-          if (res.status === 202 && res.data && res.data.xRequestId) {
-            // Async mode accepted - start background SSE session and open streaming modal
-            var xReqId = res.data.xRequestId;
-            var streamUrl = `http://${hostname}:${port}/tumblebug/ns/${namespace}/stream/cmd/mci/${selectedMciId}?xRequestId=${encodeURIComponent(xReqId)}`;
-            console.log('[RemoteCmd] Starting streaming session:', xReqId);
-            startStreamingSession(streamUrl, username, password, xReqId, selectedMciId, spinnerId);
-          } else {
-            // Fallback: sync response (async=true not in URL or server returned non-202)
-            console.warn('[RemoteCmd] Sync fallback - status:', res.status, 'data:', res.data);
+        if (useSyncMode) {
+          // Sync mode: wait for full response and show formatted result
+          console.log('[RemoteCmd] Using sync mode');
+          axios({
+            method: "post",
+            url: url,
+            headers: { "Content-Type": "application/json", "x-request-id": requestId },
+            data: jsonBody,
+            auth: {
+              username: `${username}`,
+              password: `${password}`,
+            },
+          }).then((res) => {
+            console.log('[RemoteCmd] Sync response:', 'status=' + res.status, res);
             showRemoteCmdResult(res.data);
             removeSpinnerTask(spinnerId);
-          }
-        })
-          .catch(function (error) {
+          }).catch(function (error) {
             if (error.response) {
-              // status code is not 2xx
               console.log(error.response.data);
               console.log(error.response.status);
               console.log(error.response.headers);
@@ -14324,15 +14367,59 @@ async function executeRemoteCmd() {
               console.log("Error", error.message);
             }
             console.log(error.config);
-
-            errorAlert(
-              JSON.stringify(error.response.data, null, 2).replace(
-                /['",]+/g,
-                ""
-              )
-            );
+            var errMsg = error.response && error.response.data
+              ? JSON.stringify(error.response.data, null, 2).replace(/['",]+/g, "")
+              : error.message || "Unknown error";
+            errorAlert(errMsg);
             removeSpinnerTask(spinnerId);
           });
+        } else {
+          // Async mode: use SSE streaming for real-time log output
+          var asyncUrl = url + (url.includes('?') ? '&' : '?') + 'async=true';
+
+          axios({
+            method: "post",
+            url: asyncUrl,
+            headers: { "Content-Type": "application/json", "x-request-id": requestId },
+            data: jsonBody,
+            auth: {
+              username: `${username}`,
+              password: `${password}`,
+            },
+          }).then((res) => {
+            console.log('[RemoteCmd] POST response:', 'status=' + res.status, 'hasXRequestId=' + !!(res.data && res.data.xRequestId), 'url=' + asyncUrl, res);
+
+            if (res.status === 202 && res.data && res.data.xRequestId) {
+              // Async mode accepted - start background SSE session and open streaming modal
+              var xReqId = res.data.xRequestId;
+              var streamUrl = `http://${hostname}:${port}/tumblebug/ns/${namespace}/stream/cmd/mci/${selectedMciId}?xRequestId=${encodeURIComponent(xReqId)}`;
+              console.log('[RemoteCmd] Starting streaming session:', xReqId);
+              startStreamingSession(streamUrl, username, password, xReqId, selectedMciId, spinnerId);
+            } else {
+              // Fallback: sync response (async=true not in URL or server returned non-202)
+              console.warn('[RemoteCmd] Sync fallback - status:', res.status, 'data:', res.data);
+              showRemoteCmdResult(res.data);
+              removeSpinnerTask(spinnerId);
+            }
+          })
+            .catch(function (error) {
+              if (error.response) {
+                // status code is not 2xx
+                console.log(error.response.data);
+                console.log(error.response.status);
+                console.log(error.response.headers);
+              } else {
+                console.log("Error", error.message);
+              }
+              console.log(error.config);
+
+              var errMsg = error.response && error.response.data
+                ? JSON.stringify(error.response.data, null, 2).replace(/['",]+/g, "")
+                : error.message || "Unknown error";
+              errorAlert(errMsg);
+              removeSpinnerTask(spinnerId);
+            });
+        }
 
       } else {
         console.log("Cannot set command");
