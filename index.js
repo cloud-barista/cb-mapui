@@ -7331,7 +7331,7 @@ function getRecommendedSpec(idx, latitude, longitude) {
     // Spec selection popup
     Swal.fire({
       title: "Select a Spec from the Recommendation List",
-      width: 900,
+      width: 1200,
       position: 'center',
 
       // Spec selection popup HTML part with row selection instead of buttons

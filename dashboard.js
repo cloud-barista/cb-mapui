@@ -2096,9 +2096,11 @@ function updateMciTable() {
     
     // Helper function to truncate text and add tooltip for MCI table
     const truncateWithTooltip = (text, maxLength = 20) => {
-      if (!text || text === 'N/A' || text === 'None') return text;
-      if (text.length <= maxLength) return text;
-      return `<span title="${text.replace(/"/g, '&quot;')}">${text.substring(0, maxLength)}...</span>`;
+      if (text === null || text === undefined) return text;
+      text = String(text);
+      if (text === 'N/A' || text === 'None') return text;
+      if (text.length <= maxLength) return _escapeHtml(text);
+      return `<span title="${_escapeHtml(text)}">${_escapeHtml(text.substring(0, maxLength))}...</span>`;
     };
     
     // Normalize status for CSS class
@@ -4038,16 +4040,28 @@ function deleteResource(resourceType, resourceId, parameters = {}) {
     });
 }
 
+// Helper function to escape HTML for safe innerHTML insertion
+function _escapeHtml(str) {
+  if (window.escapeHtml) return window.escapeHtml(str);
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 // Helper function for text truncation
 function truncateText(text, maxLength) {
-  if (!text || text === 'N/A' || text === 'None') return text;
-  if (text.length <= maxLength) return text;
-  return `<span title="${text.replace(/"/g, '&quot;')}">${text.substring(0, maxLength)}...</span>`;
+  if (text === null || text === undefined) return text;
+  text = String(text);
+  if (text === 'N/A' || text === 'None') return text;
+  if (text.length <= maxLength) return _escapeHtml(text);
+  return `<span title="${_escapeHtml(text)}">${_escapeHtml(text.substring(0, maxLength))}...</span>`;
 }
 
 // Smart truncation that only truncates very long text
 function smartTruncate(text, columnType = 'default') {
-  if (!text || text === 'N/A' || text === 'None') return text;
+  if (text === null || text === undefined) return text;
+  text = String(text);
+  if (text === 'N/A' || text === 'None') return text;
   
   // Define thresholds based on column type
   const thresholds = {
@@ -4063,8 +4077,8 @@ function smartTruncate(text, columnType = 'default') {
   
   const maxLength = thresholds[columnType] || thresholds.default;
   
-  if (text.length <= maxLength) return text;
-  return `<span title="${text.replace(/"/g, '&quot;')}">${text.substring(0, maxLength)}...</span>`;
+  if (text.length <= maxLength) return _escapeHtml(text);
+  return `<span title="${_escapeHtml(text)}">${_escapeHtml(text.substring(0, maxLength))}...</span>`;
 }
 
 // Helper function to format zones with active zone highlighting
