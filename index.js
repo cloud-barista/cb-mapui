@@ -11959,7 +11959,7 @@ function setDefaultRemoteCommandsByApp(appName) {
       // Prerequisites: K8s with --llm-d mode, GPU workers joined
       // --hf-token required for gated models (Llama, Mistral, etc.)
       // --nodeport 30080 exposes gateway externally via NodePort on VM public IP
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --hf-token YOUR_HF_TOKEN --nodeport 30080";
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --hf-token <HF_TOKEN> --nodeport 30080";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
@@ -11967,7 +11967,8 @@ function setDefaultRemoteCommandsByApp(appName) {
       // Deploy llm-d with specific model via helmfile (run on control plane)
       // --replicas 1 --tp 1 for minimal single-GPU; adjust for multi-GPU
       // --nodeport 30080 exposes gateway externally via NodePort on VM public IP
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --hf-token YOUR_HF_TOKEN --replicas 1 --tp 1 --nodeport 30080 --model $$Func(AssignTask(task='Qwen/Qwen3-32B, meta-llama/Llama-3.3-8B-Instruct, Qwen/Qwen3-8B, mistralai/Mistral-Small-3.2-24B-Instruct-2503'))";
+      // Replace <HF_TOKEN> with your Hugging Face token (required for gated models like Llama, Mistral)
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --hf-token <HF_TOKEN> --replicas 1 --tp 1 --nodeport 30080 --model $$Func(AssignTask(task='Qwen/Qwen3-32B, meta-llama/Llama-3.3-8B-Instruct, Qwen/Qwen3-8B, mistralai/Mistral-Small-3.2-24B-Instruct-2503'))";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
@@ -11980,7 +11981,8 @@ function setDefaultRemoteCommandsByApp(appName) {
     case "LlmdStatus":
       // Check llm-d deployment status (run on control plane)
       // Shows pods, helm releases, InferencePool, Gateway, and GPU resources
-      defaultRemoteCommand[0] = "echo '=== Helm Releases ===' && helm list -n llm-d 2>/dev/null && echo '' && echo '=== Pods ===' && kubectl get pods -n llm-d -o wide && echo '' && echo '=== InferencePool ===' && kubectl get inferencepool -n llm-d 2>/dev/null && echo '' && echo '=== Gateway ===' && kubectl get gateway -n llm-d 2>/dev/null && echo '' && echo '=== Services ===' && kubectl get svc -n llm-d && echo '' && echo '=== GPU Resources ===' && kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu' && echo '' && echo '=== External Access ===' && SVC=$(kubectl get svc -n llm-d -o name 2>/dev/null | grep gateway | head -1 | sed 's|service/||') && NP=$(kubectl get svc $SVC -n llm-d -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null) && NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type==\"ExternalIP\")].address}' 2>/dev/null) && if [ -n \"$NP\" ]; then echo \"  NodePort: $NP\"; echo \"  Endpoint: http://${NODE_IP:-<NODE_IP>}:$NP\"; else echo '  Service type: ClusterIP (use --nodeport to expose externally)'; fi";
+      // Uses ; instead of && so each section runs even if previous ones fail
+      defaultRemoteCommand[0] = "echo '=== Helm Releases ==='; helm list -n llm-d 2>/dev/null || echo '  (helm not installed or namespace llm-d missing)'; echo ''; echo '=== Pods ==='; kubectl get pods -n llm-d -o wide 2>/dev/null || echo '  (no pods found or namespace llm-d missing)'; echo ''; echo '=== InferencePool ==='; kubectl get inferencepool -n llm-d 2>/dev/null || echo '  (InferencePool CRD not installed or resources not found)'; echo ''; echo '=== Gateway ==='; kubectl get gateway -n llm-d 2>/dev/null || echo '  (Gateway CRD not installed or resources not found)'; echo ''; echo '=== Services ==='; kubectl get svc -n llm-d 2>/dev/null || echo '  (services not found or namespace llm-d missing)'; echo ''; echo '=== GPU Resources ==='; kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu' 2>/dev/null || echo '  (no GPU resources detected)'; echo ''; echo '=== External Access ==='; SVC=$(kubectl get svc -n llm-d -o name 2>/dev/null | grep gateway | head -1 | sed 's|service/||'); NP=$(kubectl get svc $SVC -n llm-d -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null); NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type==\"ExternalIP\")].address}' 2>/dev/null); if [ -n \"$NP\" ]; then echo \"  NodePort: $NP\"; echo \"  Endpoint: http://${NODE_IP:-<NODE_IP>}:$NP\"; else echo '  Service type: ClusterIP (use --nodeport to expose externally)'; fi";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
@@ -11992,7 +11994,7 @@ function setDefaultRemoteCommandsByApp(appName) {
       break;
     case "K8sGpuStatus":
       // Check GPU status on K8s cluster (run on control plane)
-      defaultRemoteCommand[0] = "echo '=== GPU Operator Pods ===' && kubectl get pods -n gpu-operator && echo '' && echo '=== GPU Resources per Node ===' && kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu'";
+      defaultRemoteCommand[0] = "echo '=== GPU Operator Pods ==='; kubectl get pods -n gpu-operator 2>/dev/null || echo '  (GPU Operator not installed or namespace not found)'; echo ''; echo '=== GPU Resources per Node ==='; kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu' 2>/dev/null || echo '  (no GPU resources detected)'";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
