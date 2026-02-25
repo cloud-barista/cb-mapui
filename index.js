@@ -11946,23 +11946,29 @@ function setDefaultRemoteCommandsByApp(appName) {
       defaultRemoteCommand[2] = "";
       break;
     case "K8sLlmdControlPlane":
-      // Deploy K8s control plane with llm-d components (Gateway API, LeaderWorkerSet, GPU Operator)
-      // For distributed LLM inference with llm-d
+      // Deploy K8s control plane with llm-d infrastructure components
+      // Installs: Gateway API CRDs v1.4.0, Inference Extension CRDs v1.3.0,
+      //   LeaderWorkerSet v0.7.0, Istio Gateway, GPU Operator, helmfile, yq
       defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/k8s/k8s-control-plane-setup.sh | bash -s -- --llm-d";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
 
     case "LlmdDeploy":
-      // Deploy llm-d on K8s cluster (run on control plane)
+      // Deploy llm-d on K8s cluster via helmfile (run on control plane)
       // Prerequisites: K8s with --llm-d mode, GPU workers joined
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash";
+      // --hf-token required for gated models (Llama, Mistral, etc.)
+      // --nodeport 30080 exposes gateway externally via NodePort on VM public IP
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --hf-token <HF_TOKEN> --nodeport 30080";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
     case "LlmdDeployWithModel":
-      // Deploy llm-d with specific model
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --model $$Func(AssignTask(task='meta-llama/Llama-3.1-8B-Instruct, Qwen/Qwen2.5-7B-Instruct, mistralai/Mistral-7B-Instruct-v0.3'))";
+      // Deploy llm-d with specific model via helmfile (run on control plane)
+      // --replicas 1 --tp 1 for minimal single-GPU; adjust for multi-GPU
+      // --nodeport 30080 exposes gateway externally via NodePort on VM public IP
+      // Replace <HF_TOKEN> with your Hugging Face token (required for gated models like Llama, Mistral)
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --hf-token <HF_TOKEN> --replicas 1 --tp 1 --nodeport 30080 --model $$Func(AssignTask(task='Qwen/Qwen3-32B, meta-llama/Llama-3.3-8B-Instruct, Qwen/Qwen3-8B, mistralai/Mistral-Small-3.2-24B-Instruct-2503'))";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
@@ -11974,13 +11980,21 @@ function setDefaultRemoteCommandsByApp(appName) {
       break;
     case "LlmdStatus":
       // Check llm-d deployment status (run on control plane)
-      defaultRemoteCommand[0] = "echo '=== llm-d Pods ===' && kubectl get pods -n llm-d -o wide && echo '' && echo '=== llm-d Services ===' && kubectl get svc -n llm-d && echo '' && echo '=== GPU Resources ===' && kubectl describe nodes | grep -A5 'Allocatable:' | grep nvidia";
+      // Shows pods, helm releases, InferencePool, Gateway, and GPU resources
+      // Uses ; instead of && so each section runs even if previous ones fail
+      defaultRemoteCommand[0] = "echo '=== Helm Releases ==='; helm list -n llm-d 2>/dev/null || echo '  (helm not installed or namespace llm-d missing)'; echo ''; echo '=== Pods ==='; kubectl get pods -n llm-d -o wide 2>/dev/null || echo '  (no pods found or namespace llm-d missing)'; echo ''; echo '=== InferencePool ==='; kubectl get inferencepool -n llm-d 2>/dev/null || echo '  (InferencePool CRD not installed or resources not found)'; echo ''; echo '=== Gateway ==='; kubectl get gateway -n llm-d 2>/dev/null || echo '  (Gateway CRD not installed or resources not found)'; echo ''; echo '=== Services ==='; kubectl get svc -n llm-d 2>/dev/null || echo '  (services not found or namespace llm-d missing)'; echo ''; echo '=== GPU Resources ==='; kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu' 2>/dev/null || echo '  (no GPU resources detected)'; echo ''; echo '=== External Access ==='; SVC=$(kubectl get svc -n llm-d -o name 2>/dev/null | grep gateway | head -1 | sed 's|service/||'); NP=$(kubectl get svc $SVC -n llm-d -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null); NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type==\"ExternalIP\")].address}' 2>/dev/null); if [ -n \"$NP\" ]; then echo \"  NodePort: $NP\"; echo \"  Endpoint: http://${NODE_IP:-<NODE_IP>}:$NP\"; else echo '  Service type: ClusterIP (use --nodeport to expose externally)'; fi";
+      defaultRemoteCommand[1] = "";
+      defaultRemoteCommand[2] = "";
+      break;
+    case "LlmdUninstall":
+      // Uninstall llm-d deployment via helmfile destroy (run on control plane)
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/deploy-llm-d.sh | bash -s -- --uninstall";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
     case "K8sGpuStatus":
       // Check GPU status on K8s cluster (run on control plane)
-      defaultRemoteCommand[0] = "echo '=== GPU Operator Pods ===' && kubectl get pods -n gpu-operator && echo '' && echo '=== GPU Resources per Node ===' && kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu'";
+      defaultRemoteCommand[0] = "echo '=== GPU Operator Pods ==='; kubectl get pods -n gpu-operator 2>/dev/null || echo '  (GPU Operator not installed or namespace not found)'; echo ''; echo '=== GPU Resources per Node ==='; kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu' 2>/dev/null || echo '  (no GPU resources detected)'";
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
@@ -12307,7 +12321,7 @@ window.predefinedScriptCategories = {
   },
   'k8s-llmd': {
     label: '☸️ K8s (llm-d)',
-    description: 'Kubernetes with llm-d for distributed LLM inference',
+    description: 'Kubernetes with llm-d for distributed LLM inference (helmfile)',
     scripts: [
       { value: 'Setup-WireGuard', label: '0. Setup WireGuard VPN', step: 0, optional: true },
       { value: 'K8sLlmdControlPlane', label: '1. Deploy Control Plane (llm-d)', step: 1, targetLabel: 'role=control' },
@@ -12318,9 +12332,10 @@ window.predefinedScriptCategories = {
       { value: 'Nvidia-Status', label: '6. Check GPU Driver', step: 6, targetLabel: 'accelerator=gpu' },
       { value: 'K8sWorker-Deploy', label: '7. Deploy Worker', step: 7, targetLabel: 'role=node' },
       { value: 'K8sClusterStatus', label: '8. Check Cluster Status', step: 8, targetLabel: 'role=control', syncMode: true },
-      { value: 'LlmdCheck', label: '9. Check llm-d Prerequisites', step: 9, targetLabel: 'role=control'},
+      { value: 'LlmdCheck', label: '9. Check llm-d Prerequisites', step: 9, targetLabel: 'role=control', syncMode: true },
       { value: 'LlmdDeployWithModel', label: '10. Deploy llm-d with Model', step: 10, targetLabel: 'role=control' },
-      { value: 'LlmdStatus', label: '11. Check llm-d Status', step: 11, targetLabel: 'role=control', syncMode: true }
+      { value: 'LlmdStatus', label: '11. Check llm-d Status', step: 11, targetLabel: 'role=control', syncMode: true },
+      { value: 'LlmdUninstall', label: '12. Uninstall llm-d', step: 12, targetLabel: 'role=control', optional: true }
     ]
   },
   'ml-ray': {
@@ -12431,9 +12446,9 @@ window.predefinedScriptCategories = {
 window.generatePredefinedScriptsHtml = function (includeDeployOptions = false) {
   const categories = window.predefinedScriptCategories;
   
-  // Generate category tabs
+  // Generate category tabs (remember last selected category)
   let categoryTabs = '';
-  const defaultCategory = 'llm-ollama';
+  const defaultCategory = window._currentScriptCategory || 'llm-ollama';
   
   Object.entries(categories).forEach(([key, cat]) => {
     // Skip platform category if not includeDeployOptions
@@ -12483,7 +12498,7 @@ window.generatePredefinedScriptsHtml = function (includeDeployOptions = false) {
 // Generate script category tabs HTML only (for inline use)
 window.generateScriptCategoryTabsHtml = function(includeDeployOptions = false) {
   const categories = window.predefinedScriptCategories;
-  const defaultCategory = 'llm-ollama';
+  const defaultCategory = window._currentScriptCategory || 'llm-ollama';
   let html = '';
   
   Object.entries(categories).forEach(([key, cat]) => {
@@ -14236,13 +14251,13 @@ async function executeRemoteCmd() {
           ${window.generateScriptCategoryTabsHtml(true)}
         </div>
         <div id="categoryDescription" style="font-size: 0.7rem; color: #666; margin-bottom: 6px; padding: 4px 8px; background: #fff3cd; border-radius: 4px;">
-          📝 Ollama-based LLM service deployment
+          📝 ${(window.predefinedScriptCategories[window._currentScriptCategory || 'llm-ollama'] || window.predefinedScriptCategories['llm-ollama']).description}
         </div>
         <div class="popup-row">
           <div class="popup-col" style="flex: 3;">
             <div class="popup-field">
               <select id="predefinedScripts" class="popup-select">
-                ${window.generateScriptOptionsHtml(window.predefinedScriptCategories['llm-ollama'].scripts)}
+                ${window.generateScriptOptionsHtml((window.predefinedScriptCategories[window._currentScriptCategory || 'llm-ollama'] || window.predefinedScriptCategories['llm-ollama']).scripts)}
               </select>
             </div>
           </div>
