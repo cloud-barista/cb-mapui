@@ -11876,7 +11876,7 @@ function setDefaultRemoteCommandsByApp(appName) {
       // WireGuard mesh VPN setup - run on all nodes with same parameters
       // Format: public_ip:wireguard_ip pairs (e.g., 54.1.1.1:10.200.0.1,35.2.2.2:10.200.0.2)
       defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/k8s/setup-wireguard-mesh.sh -o ~/setup-wireguard-mesh.sh && chmod +x ~/setup-wireguard-mesh.sh";
-      defaultRemoteCommand[1] = "sudo ~/setup-wireguard-mesh.sh --nodes \"<PUBLIC_IP1:WG_IP1,PUBLIC_IP2:WG_IP2,...>\"";
+      defaultRemoteCommand[1] = "sudo ~/setup-wireguard-mesh.sh --nodes \"<NODES_MAPPING>\"";
       defaultRemoteCommand[2] = "";
       break;
     case "Ollama":
@@ -12016,7 +12016,7 @@ function setDefaultRemoteCommandsByApp(appName) {
     case "Jitsi":
       defaultRemoteCommand[0] = "wget https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/jitsi/startServer.sh";
       defaultRemoteCommand[1] = "chmod +x ~/startServer.sh";
-      defaultRemoteCommand[2] = "sudo ~/startServer.sh " + "$$Func(GetPublicIPs(separator=' '))" + " " + "DNS EMAIL";
+      defaultRemoteCommand[2] = "sudo ~/startServer.sh " + "$$Func(GetPublicIPs(separator=' '))" + " " + "<DNS_DOMAIN> <EMAIL_ADDRESS>";
       break;
     case "Stress":
       defaultRemoteCommand[0] = "sudo apt install -y stress > /dev/null; stress -c 16 -t 60";
@@ -12246,6 +12246,168 @@ window.resetCommands = function () {
   }
 
   console.log('Commands reset to 3 empty fields');
+};
+
+// ============================================================
+// Placeholder System for Remote Commands
+// ============================================================
+// Detects <PLACEHOLDER_NAME> patterns in commands and renders
+// separate input fields for each. Secret placeholders (defined in
+// PLACEHOLDER_METADATA with secret:true) use masked password inputs.
+
+/**
+ * Metadata for known placeholders: description, input hint, and secret flag.
+ * Placeholders not listed here still get auto-detected input fields.
+ */
+window.PLACEHOLDER_METADATA = {
+  'PASTE_JOIN_COMMAND_HERE': {
+    description: 'K8s join command from control plane',
+    hint: 'kubeadm join 10.0.0.1:6443 --token abc.123 --discovery-token-ca-cert-hash sha256:xyz',
+    secret: false,
+  },
+  'HF_TOKEN': {
+    description: 'Hugging Face API token',
+    hint: 'hf_xxxxxxxxxxxxxxxxxxxxx',
+    secret: true,
+  },
+  'DNS_DOMAIN': {
+    description: 'DNS domain name',
+    hint: 'meet.example.com',
+    secret: false,
+  },
+  'EMAIL_ADDRESS': {
+    description: 'Admin email address',
+    hint: 'admin@example.com',
+    secret: false,
+  },
+  'NODES_MAPPING': {
+    description: 'public_ip:wg_ip pairs, comma-separated',
+    hint: '54.1.1.1:10.200.0.1,35.2.2.2:10.200.0.2',
+    secret: false,
+  },
+};
+
+/**
+ * Extract user-input placeholders from command text.
+ * Matches <UPPERCASE_NAME> patterns, excluding shell defaults like ${VAR:-<DEFAULT>}.
+ * @param {string} text - Command text to scan
+ * @returns {Array<{name: string, fullMatch: string, isSecret: boolean, description: string, hint: string}>}
+ */
+window.extractPlaceholders = function(text) {
+  if (!text) return [];
+  const regex = /(?<!:-)<([A-Z][A-Z0-9_-]*)>/g;
+  const placeholders = [];
+  const seen = new Set();
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const name = match[1];
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const meta = window.PLACEHOLDER_METADATA[name] || {};
+    placeholders.push({
+      name: name,
+      fullMatch: match[0],
+      isSecret: meta.secret === true,
+      description: meta.description || '',
+      hint: meta.hint || '',
+    });
+  }
+  return placeholders;
+};
+
+/**
+ * Render placeholder input fields below each command textarea that contains placeholders.
+ * Preserves existing input values when re-rendering (e.g., after textarea edit).
+ */
+window.renderPlaceholderInputs = function() {
+  const cmdContainer = document.getElementById('cmdContainer');
+  if (!cmdContainer) return;
+
+  const cmdDivs = cmdContainer.querySelectorAll('[id^="cmdDiv"]');
+  cmdDivs.forEach((div, idx) => {
+    const cmdIndex = idx + 1;
+    const textarea = document.getElementById(`cmd${cmdIndex}`);
+    if (!textarea) return;
+
+    const placeholders = window.extractPlaceholders(textarea.value);
+
+    // Preserve existing input values before removing panel
+    const existingPanel = div.querySelector('.placeholder-panel');
+    const existingValues = {};
+    if (existingPanel) {
+      existingPanel.querySelectorAll('.placeholder-input').forEach(input => {
+        if (input.value) {
+          existingValues[input.dataset.placeholderName] = input.value;
+        }
+      });
+      existingPanel.remove();
+    }
+
+    if (placeholders.length === 0) return;
+
+    // Create placeholder input panel
+    const panel = document.createElement('div');
+    panel.className = 'placeholder-panel';
+    panel.style.cssText = 'margin: 4px 0 8px 0; padding: 8px 12px; background: #f0f7ff; border: 1px solid #b3d7ff; border-radius: 6px; font-size: 0.8rem;';
+
+    placeholders.forEach(ph => {
+      const inputId = `ph_cmd${cmdIndex}_${ph.name}`;
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 4px;';
+
+      // Label
+      const label = document.createElement('label');
+      label.htmlFor = inputId;
+      label.style.cssText = 'min-width: 100px; font-weight: 600; color: #0d6efd; font-size: 0.75rem; white-space: nowrap;';
+      label.textContent = (ph.isSecret ? '🔒 ' : '📝 ') + ph.name;
+
+      // Input field
+      const input = document.createElement('input');
+      input.id = inputId;
+      input.type = ph.isSecret ? 'password' : 'text';
+      input.className = 'popup-input placeholder-input';
+      input.dataset.cmdIndex = String(cmdIndex);
+      input.dataset.placeholderName = ph.name;
+      input.dataset.fullMatch = ph.fullMatch;
+      input.dataset.isSecret = String(ph.isSecret);
+      input.placeholder = ph.hint || `Enter ${ph.name.replace(/_/g, ' ').toLowerCase()}`;
+      input.style.cssText = 'flex: 1; padding: 4px 8px; font-size: 0.8rem; border: 1px solid #b3d7ff; border-radius: 4px;';
+
+      // Restore previous value
+      if (existingValues[ph.name]) {
+        input.value = existingValues[ph.name];
+      }
+
+      row.appendChild(label);
+      row.appendChild(input);
+
+      // Toggle visibility button for secret fields
+      if (ph.isSecret) {
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.textContent = '👁';
+        toggleBtn.title = 'Toggle visibility';
+        toggleBtn.style.cssText = 'padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px; background: #f8f9fa; cursor: pointer; font-size: 0.8rem;';
+        toggleBtn.onclick = () => {
+          input.type = input.type === 'password' ? 'text' : 'password';
+          toggleBtn.textContent = input.type === 'password' ? '👁' : '🙈';
+        };
+        row.appendChild(toggleBtn);
+      }
+
+      // Description
+      if (ph.description) {
+        const desc = document.createElement('span');
+        desc.style.cssText = 'font-size: 0.65rem; color: #888; white-space: nowrap;';
+        desc.textContent = ph.description;
+        row.appendChild(desc);
+      }
+
+      panel.appendChild(row);
+    });
+
+    div.appendChild(panel);
+  });
 };
 
 // ============================================================
@@ -13064,9 +13226,26 @@ window.setupCommandsPopup = function (maxCommands = 10) {
     scriptSelect.removeEventListener('change', window.loadPredefinedScript);
     scriptSelect.addEventListener('change', window.loadPredefinedScript);
   }
+
+  // Setup placeholder auto-detection: re-render placeholder inputs when textarea content changes
+  const phCmdContainer = document.getElementById('cmdContainer');
+  if (phCmdContainer && !phCmdContainer.dataset.phDelegationAttached) {
+    phCmdContainer.dataset.phDelegationAttached = 'true';
+    let phDebounce;
+    phCmdContainer.addEventListener('input', (e) => {
+      if (e.target.tagName === 'TEXTAREA') {
+        clearTimeout(phDebounce);
+        phDebounce = setTimeout(() => window.renderPlaceholderInputs(), 500);
+      }
+    });
+  }
+
+  // Initial render of placeholder inputs for pre-filled commands
+  window.renderPlaceholderInputs();
 };
 
 // Collect commands from popup (call in preConfirm)
+// Substitutes placeholder values from placeholder input fields before returning.
 window.collectCommands = function () {
   const commands = [];
   const cmdContainer = document.getElementById('cmdContainer');
@@ -13076,7 +13255,21 @@ window.collectCommands = function () {
   cmdDivs.forEach((div, index) => {
     const cmdInput = document.getElementById(`cmd${index + 1}`);
     if (cmdInput && cmdInput.value && cmdInput.value.trim()) {
-      commands.push(cmdInput.value.trim());
+      let cmdText = cmdInput.value.trim();
+
+      // Substitute placeholders with values from placeholder input fields
+      const phInputs = div.querySelectorAll('.placeholder-input');
+      phInputs.forEach(phInput => {
+        const fullMatch = phInput.dataset.fullMatch;
+        const value = phInput.value;
+        if (fullMatch && value) {
+          while (cmdText.includes(fullMatch)) {
+            cmdText = cmdText.replace(fullMatch, value);
+          }
+        }
+      });
+
+      commands.push(cmdText);
     }
   });
 
@@ -13191,6 +13384,9 @@ window.loadPredefinedScript = function () {
 
   // Auto-toggle sync mode based on script's syncMode property
   window.applyScriptSyncMode(scriptType);
+
+  // Render placeholder input fields for any detected placeholders in commands
+  window.renderPlaceholderInputs();
 };
 
 // Apply targetLabel from predefined script to Label Selector
