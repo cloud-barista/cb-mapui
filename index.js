@@ -544,6 +544,7 @@ const PREDEFINED_LABELS = [
   { key: 'role', value: 'worker', description: 'Worker node' },
   { key: 'role', value: 'model', description: 'LLM model serving node' },
   { key: 'role', value: 'gui', description: 'GUI/Dashboard node' },
+  { key: 'role', value: 'observability', description: 'Monitoring/telemetry node' },
   { key: 'accelerator', value: 'gpu', description: 'GPU-enabled node' }
 ];
 
@@ -11899,6 +11900,27 @@ function setDefaultRemoteCommandsByApp(appName) {
       defaultRemoteCommand[1] = "echo '$$Func(GetPublicIP(target=this, prefix=http://))'";
       defaultRemoteCommand[2] = "";
       break;
+    case "TelemetrySensor":
+      // Setup GPU telemetry sensor (Node Exporter + GPU Exporter + Telegraf)
+      // Run on each GPU VM to expose aggregated metrics on port 9101
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/setup_gpu_sensor.sh | bash";
+      defaultRemoteCommand[1] = "echo 'Telegraf gateway: $$Func(GetPublicIP(target=this)):9101'";
+      defaultRemoteCommand[2] = "";
+      break;
+    case "TelemetryMonitor":
+      // Setup central monitoring (Prometheus + Grafana) on a monitoring VM
+      // Requires GPU VM IPs as arguments to scrape via Telegraf gateway
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/setup_monitoring.sh | bash -s -- <TELEMETRY_GPU_VM_IPS>";
+      defaultRemoteCommand[1] = "echo 'Prometheus: $$Func(GetPublicIP(target=this, prefix=http://, postfix=:9090/targets))'";
+      defaultRemoteCommand[2] = "echo 'Grafana: $$Func(GetPublicIP(target=this, prefix=http://, postfix=:3000))'";
+      break;
+    case "TelemetryExport":
+      // Export Prometheus metrics to CSV (runs on monitoring VM)
+      // Supports: --minutes, --ips, --metrics options
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/export_metrics.sh | bash -s -- --minutes <EXPORT_MINUTES> --ips <TELEMETRY_GPU_VM_IPS>";
+      defaultRemoteCommand[1] = "ls -la ./metrics_export/";
+      defaultRemoteCommand[2] = "";
+      break;
     case "RayHead-Deploy":
       defaultRemoteCommand[0] = "wget https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/ray/ray-head-setup.sh";
       defaultRemoteCommand[1] = "chmod +x ~/ray-head-setup.sh";
@@ -12246,6 +12268,11 @@ window.resetCommands = function () {
   }
 
   console.log('Commands reset to 3 empty fields');
+
+  // Re-render placeholder inputs to clear stale panels
+  if (typeof window.renderPlaceholderInputs === 'function') {
+    window.renderPlaceholderInputs();
+  }
 };
 
 // ============================================================
@@ -12278,6 +12305,16 @@ window.PLACEHOLDER_METADATA = {
   'EMAIL_ADDRESS': {
     description: 'Admin email address',
     hint: 'admin@example.com',
+    secret: false,
+  },
+  'TELEMETRY_GPU_VM_IPS': {
+    description: 'GPU VM public IPs (space-separated for monitor, comma-separated for export)',
+    hint: '104.42.74.157 3.96.201.235',
+    secret: false,
+  },
+  'EXPORT_MINUTES': {
+    description: 'Time range in minutes for metrics export',
+    hint: '60',
     secret: false,
   },
   'NODES_MAPPING': {
@@ -12456,13 +12493,16 @@ window.predefinedScriptCategories = {
     label: '🤖 LLM (vLLM)',
     description: 'vLLM-based high-performance LLM service',
     scripts: [
-      { value: 'Nvidia', label: '1. Install GPU Driver', step: 1 },
-      { value: 'RebootVM', label: '2. Reboot VM', step: 2 },
-      { value: 'Nvidia-Status', label: '3. Check GPU Driver', step: 3 },
-      { value: 'vLLM', label: '4. Install vLLM', step: 4 },
-      { value: 'vLLMServe', label: '5. Serve LLM Model', step: 5 },
+      { value: 'Nvidia', label: '1. Install GPU Driver', step: 1, targetLabel: 'accelerator=gpu' },
+      { value: 'RebootVM', label: '2. Reboot VM', step: 2, targetLabel: 'accelerator=gpu' },
+      { value: 'Nvidia-Status', label: '3. Check GPU Driver', step: 3, targetLabel: 'accelerator=gpu' },
+      { value: 'vLLM', label: '4. Install vLLM', step: 4, targetLabel: 'accelerator=gpu' },
+      { value: 'vLLMServe', label: '5. Serve LLM Model', step: 5, targetLabel: 'accelerator=gpu' },
       { value: 'Netdata', label: '6. Install Monitoring', step: 6, optional: true },
-      { value: 'OpenWebUI-vLLM', label: '7. Install Open WebUI (vLLM)', step: 7 }
+      { value: 'OpenWebUI-vLLM', label: '7. Install Open WebUI (vLLM)', step: 7 },
+      { value: 'TelemetrySensor', label: '8. Setup GPU Telemetry Sensor', step: 8, experimental: true, targetLabel: 'accelerator=gpu' },
+      { value: 'TelemetryMonitor', label: '9. Setup Monitoring Server', step: 9, experimental: true, targetLabel: 'role=observability' },
+      { value: 'TelemetryExport', label: '10. Export Metrics to CSV', step: 10, experimental: true, targetLabel: 'role=observability' }
     ]
   },
   'k8s-general': {
@@ -12584,6 +12624,7 @@ window.predefinedScriptCategories = {
           label: script.label,
           step: script.step,
           optional: script.optional,
+          experimental: script.experimental,
           category: cat.label
         };
         if (script.targetLabel) entry.targetLabel = script.targetLabel;
@@ -12691,8 +12732,9 @@ window.generateScriptOptionsHtml = function(scripts) {
   let options = `<option value="">-- Select a script --</option>`;
   scripts.forEach(script => {
     const optionalTag = script.optional ? ' [Optional]' : '';
+    const experimentalTag = script.experimental ? ' [Experimental]' : '';
     const categoryTag = script.category ? ` [${script.category}]` : '';
-    options += `<option value="${script.value}">${script.label}${optionalTag}${categoryTag}</option>`;
+    options += `<option value="${script.value}">${script.label}${optionalTag}${experimentalTag}${categoryTag}</option>`;
   });
   return options;
 };
@@ -13263,9 +13305,7 @@ window.collectCommands = function () {
         const fullMatch = phInput.dataset.fullMatch;
         const value = phInput.value;
         if (fullMatch && value) {
-          while (cmdText.includes(fullMatch)) {
-            cmdText = cmdText.replace(fullMatch, value);
-          }
+          cmdText = cmdText.replaceAll(fullMatch, value);
         }
       });
 
