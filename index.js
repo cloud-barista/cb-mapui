@@ -11842,8 +11842,16 @@ function setDefaultRemoteCommandsByApp(appName) {
     case "Nvidia":
       // Install NVIDIA CUDA driver with Container Toolkit
       // Note: System will automatically reboot after installation
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installGpuDriver.sh | bash";
+      // Use download-then-execute pattern (not curl|bash) to prevent truncated script execution
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installGpuDriver.sh -o /tmp/installGpuDriver.sh && bash /tmp/installGpuDriver.sh";
       defaultRemoteCommand[1] = "echo '[INFO] GPU driver installation started. System will reboot automatically in ~5 seconds after completion.'";
+      defaultRemoteCommand[2] = "echo '[INFO] After reboot, verify with: nvidia-smi'";
+      break;
+    case "NvidiaVgpu":
+      // Install NVIDIA driver for fractional/vGPU instances (e.g., AWS g6f, Azure NCas fractional)
+      // --vgpu flag forces proprietary driver (open kernel modules do NOT support vGPU)
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installGpuDriver.sh -o /tmp/installGpuDriver.sh && bash /tmp/installGpuDriver.sh --vgpu";
+      defaultRemoteCommand[1] = "echo '[INFO] GPU driver (vGPU/proprietary) installation started. System will reboot automatically.'";
       defaultRemoteCommand[2] = "echo '[INFO] After reboot, verify with: nvidia-smi'";
       break;
     case "RebootVM":
@@ -12176,7 +12184,7 @@ function statusApp() {
       );
       cmd.push("chmod +x ~/setgame.sh");
       cmd.push("sudo ~/setgame.sh");
-    } else if (selectApp.value == "Nvidia") {
+    } else if (selectApp.value == "Nvidia" || selectApp.value == "NvidiaVgpu") {
       cmd.push("nvidia-smi");
       cmd.push("");
       cmd.push("");
@@ -12486,6 +12494,7 @@ window.predefinedScriptCategories = {
     description: 'Ollama-based LLM service deployment',
     scripts: [
       { value: 'Nvidia', label: '1. Install GPU Driver', step: 1 },
+      { value: 'NvidiaVgpu', label: '1-alt. Install GPU Driver (vGPU)', step: 1, optional: true },
       { value: 'RebootVM', label: '2. Reboot VM', step: 2 },
       { value: 'Nvidia-Status', label: '3. Check GPU Driver', step: 3 },
       { value: 'Ollama', label: '4. Install Ollama', step: 4 },
@@ -12499,6 +12508,7 @@ window.predefinedScriptCategories = {
     description: 'vLLM-based high-performance LLM service',
     scripts: [
       { value: 'Nvidia', label: '1. Install GPU Driver', step: 1, targetLabel: 'accelerator=gpu' },
+      { value: 'NvidiaVgpu', label: '1-alt. Install GPU Driver (vGPU)', step: 1, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'RebootVM', label: '2. Reboot VM', step: 2, targetLabel: 'accelerator=gpu' },
       { value: 'Nvidia-Status', label: '3. Check GPU Driver', step: 3, targetLabel: 'accelerator=gpu' },
       { value: 'vLLM', label: '4. Install vLLM', step: 4, targetLabel: 'accelerator=gpu' },
@@ -12519,6 +12529,7 @@ window.predefinedScriptCategories = {
       { value: 'K8sGetJoinCommand', label: '2. Get Join Command', step: 2, targetLabel: 'role=control', syncMode: true },
       { value: 'K8sGetKubeconfig', label: '3. Get Kubeconfig (Base64)', step: 3, targetLabel: 'role=control', syncMode: true },
       { value: 'Nvidia', label: '4. Install GPU Driver', step: 4, optional: true, targetLabel: 'accelerator=gpu' },
+      { value: 'NvidiaVgpu', label: '4-alt. Install GPU Driver (vGPU)', step: 4, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'RebootVM', label: '5. Reboot VM', step: 5, optional: true, targetLabel: 'role=node' },
       { value: 'Nvidia-Status', label: '6. Check GPU Driver', step: 6, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'K8sWorker-Deploy', label: '7. Deploy Worker', step: 7, targetLabel: 'role=node' },
@@ -12535,6 +12546,7 @@ window.predefinedScriptCategories = {
       { value: 'K8sGetJoinCommand', label: '2. Get Join Command', step: 2, targetLabel: 'role=control', syncMode: true },
       { value: 'K8sGetKubeconfig', label: '3. Get Kubeconfig (Base64)', step: 3, targetLabel: 'role=control', syncMode: true },
       { value: 'Nvidia', label: '4. Install GPU Driver', step: 4, targetLabel: 'accelerator=gpu' },
+      { value: 'NvidiaVgpu', label: '4-alt. Install GPU Driver (vGPU)', step: 4, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'RebootVM', label: '5. Reboot VM', step: 5, targetLabel: 'role=node' },
       { value: 'Nvidia-Status', label: '6. Check GPU Driver', step: 6, targetLabel: 'accelerator=gpu' },
       { value: 'K8sWorker-Deploy', label: '7. Deploy Worker', step: 7, targetLabel: 'role=node' },
