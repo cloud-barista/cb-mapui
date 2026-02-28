@@ -11917,7 +11917,7 @@ function setDefaultRemoteCommandsByApp(appName) {
     case "TelemetryExport":
       // Export Prometheus metrics to CSV (runs on monitoring VM)
       // Supports: --minutes, --ips, --metrics options
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/export_metrics.sh | bash -s -- --minutes <EXPORT_MINUTES> --ips <TELEMETRY_GPU_VM_IPS>";
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/export_metrics.sh | bash -s -- --minutes <EXPORT_MINUTES> --ips <TELEMETRY_GPU_VM_IPS_CSV>";
       defaultRemoteCommand[1] = "ls -la ./metrics_export/";
       defaultRemoteCommand[2] = "";
       break;
@@ -12308,8 +12308,13 @@ window.PLACEHOLDER_METADATA = {
     secret: false,
   },
   'TELEMETRY_GPU_VM_IPS': {
-    description: 'GPU VM public IPs (space-separated for monitor, comma-separated for export)',
+    description: 'GPU VM public IPs (space-separated)',
     hint: '104.42.74.157 3.96.201.235',
+    secret: false,
+  },
+  'TELEMETRY_GPU_VM_IPS_CSV': {
+    description: 'GPU VM public IPs (comma-separated)',
+    hint: '104.42.74.157,3.96.201.235',
     secret: false,
   },
   'EXPORT_MINUTES': {
