@@ -6031,8 +6031,15 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
           </details>
           
           <div style="margin: 20px 0; padding: 16px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 5px;">
-            <h6 style="margin: 0 0 12px 0; color: #007bff; font-size: 1em; font-weight: 600; border-bottom: 1px solid #ddd; padding-bottom: 4px;">⚙️ Deployment Options</h6>
-            <div style="margin-top: 12px;">
+            <details>
+              <summary style="cursor: pointer; list-style: none;">
+                <h6 style="margin: 0; color: #007bff; font-size: 1em; font-weight: 600; border-bottom: 1px solid #ddd; padding-bottom: 4px; display: inline-flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 0.85em; color: #888;">▸</span>
+                  ⚙️ Deployment Options
+                  <span style="font-size: 0.8em; font-weight: normal; color: #888;">(advanced — click to expand)</span>
+                </h6>
+              </summary>
+              <div style="margin-top: 12px;">
               
               <div style="margin: 8px 0;">
                 <label style="display: flex; align-items: center; cursor: not-allowed; font-size: 0.9em; opacity: 0.5;">
@@ -6074,7 +6081,8 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
                   Create custom images from deployed Nodes and optionally cleanup infrastructure.
                 </div>
               </div>
-            </div>
+              </div>
+            </details>
           </div>
         </div>
         
@@ -10158,10 +10166,12 @@ function controlInfra(action) {
     case "terminate":
     case "continue":
     case "withdraw":
+    case "reconcile":
+    case "abort":
       break;
     default:
       console.log(
-        `The actions ${action} is not supported. Supported actions: refine, continue, withdraw, suspend, resume, reboot, terminate.`
+        `The action ${action} is not supported. Supported actions: refine, continue, withdraw, reconcile, abort, suspend, resume, reboot, terminate.`
       );
       return;
   }
@@ -10211,13 +10221,15 @@ function controlInfra(action) {
           case "terminate":
           case "continue":
           case "withdraw":
+          case "reconcile":
+          case "abort":
             infoAlert(
               JSON.stringify(res.data.message, null, 2).replace(/['",]+/g, "")
             );
             break;
           default:
             console.log(
-              `The actions ${action} is not supported. Supported actions: refine, continue, withdraw, suspend, resume, reboot, terminate.`
+              `The action ${action} is not supported. Supported actions: refine, continue, withdraw, reconcile, abort, suspend, resume, reboot, terminate.`
             );
         }
       }
@@ -18874,6 +18886,7 @@ function executeScaleOut(namespace, infraid, nodegroupid, numNodesToAdd, hostnam
 function showActionsMenu() {
   var namespace = configNamespace;
   var infraid = getSelectedInfraId();
+  var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
   
   if (!namespace) {
     errorAlert("Please select a namespace first");
@@ -18895,40 +18908,40 @@ function showActionsMenu() {
     backdrop: `rgba(0, 0, 0, 0.4)`,
     html: `
       <div style="text-align: left; margin: 20px;">
-        <p><b>Selected Infra:</b> ${infraid}</p>
+        <p><b>Selected Infra:</b> ${safeInfraid}</p>
         <hr>
         <p><b>Choose a lifecycle control action:</b></p>
-        
-        <!-- First row: 3 buttons -->
+
+        <!-- Row 1: Power lifecycle (most common) -->
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 20px;">
-          <button type="button" class="btn btn-warning" onclick="executeAction('suspend')" style="margin: 5px;">
+          <button type="button" class="btn btn-warning" onclick="executeAction('suspend')" style="margin: 5px;" title="Stop all Nodes without termination (can be resumed later).">
             ⏸️ Suspend
           </button>
-          <button type="button" class="btn btn-warning" onclick="executeAction('resume')" style="margin: 5px;">
+          <button type="button" class="btn btn-warning" onclick="executeAction('resume')" style="margin: 5px;" title="Resume all suspended Nodes.">
             ▶️ Resume
           </button>
-          <button type="button" class="btn btn-warning" onclick="executeAction('reboot')" style="margin: 5px;">
+          <button type="button" class="btn btn-warning" onclick="executeAction('reboot')" style="margin: 5px;" title="Reboot all Nodes.">
             🔄 Reboot
           </button>
         </div>
-        
-        <!-- Second row: 3 buttons -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
-          <button type="button" class="btn btn-primary" onclick="executeAction('refine')" style="margin: 5px;">
-            ⬆️ Refine
+
+        <!-- Row 2: Refine (frequently used) + Terminate (primary tear-down) -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-primary" onclick="executeAction('refine')" style="margin: 5px;" title="Drop Failed/Undefined Nodes from this Infra (metadata only — does not call CSP). Use after partial provisioning failures across CSPs.">
+            🧹 Refine
           </button>
-          <button type="button" class="btn btn-primary" onclick="executeAction('continue')" style="margin: 5px;">
-            ⏭️ Continue
-          </button>
-          <button type="button" class="btn btn-primary" onclick="executeAction('withdraw')" style="margin: 5px;">
-            ⬅️ Withdraw
+          <button type="button" class="btn btn-danger" onclick="executeAction('terminate')" style="margin: 5px;" title="Terminate all Nodes through the normal lifecycle path.">
+            ⏹️ Terminate
           </button>
         </div>
-        
-        <!-- Third row: Terminate button (full width) -->
-        <div style="margin-top: 10px;">
-          <button type="button" class="btn btn-danger" onclick="executeAction('terminate')" style="margin: 5px; width: 100%;">
-            ⏹️ Terminate
+
+        <!-- Row 3: Sub-menus for exceptional cases (held / stuck Infra) -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-outline-secondary" onclick="executeAction('holdControl')" style="margin: 5px;" title="Continue or Withdraw a held provisioning (only valid right after creating with the hold option).">
+            🔒 Hold Control
+          </button>
+          <button type="button" class="btn btn-outline-secondary" onclick="executeAction('recoveryControl')" style="margin: 5px;" title="Reconcile or Abort an Infra stuck after a server restart or partial provisioning failure.">
+            🛠️ Recovery Control
           </button>
         </div>
       </div>
@@ -18940,19 +18953,142 @@ function showActionsMenu() {
 }
 window.showActionsMenu = showActionsMenu;
 
+// Hold-gate sub-menu: only valid right after creating an Infra with option=hold.
+// Continue / Withdraw signal an in-memory holding goroutine. They will fail
+// after a server restart — for that, use Reconcile or Abort from the parent menu.
+function showHoldControlMenu() {
+  var infraid = getSelectedInfraId();
+  var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
+  if (!infraid) {
+    errorAlert("Please select an Infra first");
+    return;
+  }
+  Swal.fire({
+    title: "🔒 Hold Control",
+    width: 560,
+    showCancelButton: true,
+    showConfirmButton: false,
+    cancelButtonText: "Cancel",
+    cancelButtonColor: "#6c757d",
+    html: `
+      <div style="text-align: left; margin: 20px;">
+        <p><b>Selected Infra:</b> ${safeInfraid}</p>
+        <hr>
+        <p>For Infras created with the <b>hold</b> option, decide whether to proceed or cancel
+        the held provisioning.</p>
+        <p style="color:#888; font-size: 0.9em;"><i>Note: these only work while a holding goroutine
+        is alive in memory. If the server was restarted, use <b>Reconcile</b> or <b>Abort</b> instead.</i></p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-success" onclick="executeHoldAction('continue')" style="margin: 5px;" title="Resume the held provisioning and create the Nodes.">
+            ⏭️ Continue
+          </button>
+          <button type="button" class="btn btn-warning" onclick="executeHoldAction('withdraw')" style="margin: 5px;" title="Cancel the held provisioning before any Nodes are created.">
+            ⬅️ Withdraw
+          </button>
+        </div>
+      </div>
+    `
+  });
+}
+window.showHoldControlMenu = showHoldControlMenu;
+
+// Confirm + dispatch a hold-gate action (continue / withdraw)
+function executeHoldAction(action) {
+  Swal.close();
+  var infraid = getSelectedInfraId();
+  var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
+  var isContinue = (action === 'continue');
+  Swal.fire({
+    title: isContinue ? "Confirm Continue" : "⚠️ Confirm Withdraw",
+    html: `
+      <div style="text-align: left; margin: 20px;">
+        <p>You are about to <b style="color:${isContinue ? '#28a745' : '#ffc107'};">${action.toUpperCase()}</b>
+        the held Infra:</p>
+        <p><b>${safeInfraid}</b></p>
+        <br>
+        <p>${isContinue
+          ? 'The held provisioning will proceed and Nodes will be created.'
+          : 'The held provisioning will be cancelled. No Nodes will be created.'}</p>
+      </div>
+    `,
+    icon: isContinue ? "question" : "warning",
+    showCancelButton: true,
+    confirmButtonText: `Yes, ${action.charAt(0).toUpperCase() + action.slice(1)}`,
+    cancelButtonText: "Cancel",
+    confirmButtonColor: isContinue ? "#28a745" : "#ffc107",
+    cancelButtonColor: "#6c757d"
+  }).then((result) => {
+    if (result.isConfirmed) {
+      controlInfra(action);
+    }
+  });
+}
+window.executeHoldAction = executeHoldAction;
+
+// Recovery Control sub-menu: groups Reconcile / Abort.
+// Use these after a server restart or when an Infra is stuck.
+function showRecoveryControlMenu() {
+  var infraid = getSelectedInfraId();
+  var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
+  if (!infraid) {
+    errorAlert("Please select an Infra first");
+    return;
+  }
+  Swal.fire({
+    title: "🛠️ Recovery Control",
+    width: 600,
+    showCancelButton: true,
+    showConfirmButton: false,
+    cancelButtonText: "Cancel",
+    cancelButtonColor: "#6c757d",
+    html: `
+      <div style="text-align: left; margin: 20px;">
+        <p><b>Selected Infra:</b> ${safeInfraid}</p>
+        <hr>
+        <p>Recover an Infra that is <b>stuck</b> after a server restart or partial provisioning failure.</p>
+        <p style="color:#888; font-size: 0.9em;"><i>For normal teardown, use <b>Terminate</b> instead. These actions are exceptional.</i></p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-info" onclick="executeAction('reconcile')" style="margin: 5px;" title="Sync Infra with CSP truth: absorb orphan VMs, mark unmatched Nodes Failed.">
+            🩹 Reconcile
+          </button>
+          <button type="button" class="btn btn-danger" onclick="executeAction('abort')" style="margin: 5px;" title="Force-terminate every non-final Node (parallel + orphan rescue), then sweep Failed remnants.">
+            🛑 Abort
+          </button>
+        </div>
+      </div>
+    `
+  });
+}
+window.showRecoveryControlMenu = showRecoveryControlMenu;
+
 // Function to execute selected action and close SweetAlert
 function executeAction(action) {
   Swal.close(); // Close the current SweetAlert
-  
+
+  // Hold Control sub-menu: groups Continue / Withdraw (in-memory hold gate only)
+  if (action === 'holdControl') {
+    showHoldControlMenu();
+    return;
+  }
+
+  // Recovery Control sub-menu: groups Reconcile / Abort (for held / stuck Infras)
+  if (action === 'recoveryControl') {
+    showRecoveryControlMenu();
+    return;
+  }
+
   // Add confirmation for dangerous actions
   if (action === 'terminate') {
     var infraid = getSelectedInfraId();
+    var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
     Swal.fire({
       title: "⚠️ Confirm Termination",
       html: `
         <div style="text-align: left; margin: 20px;">
           <p>You are about to <b style="color: #dc3545;">TERMINATE</b> Infra:</p>
-          <p><b>${infraid}</b></p>
+          <p><b>${safeInfraid}</b></p>
           <br>
           <p style="color: #dc3545;"><b>⚠️ WARNING:</b> This action is <b>IRREVERSIBLE</b>!</p>
           <p style="color: #dc3545;">All Nodes and associated resources will be permanently deleted.</p>
@@ -18971,12 +19107,13 @@ function executeAction(action) {
     });
   } else if (action === 'withdraw') {
     var infraid = getSelectedInfraId();
+    var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
     Swal.fire({
       title: "⚠️ Confirm Withdraw",
       html: `
         <div style="text-align: left; margin: 20px;">
           <p>You are about to <b style="color: #ffc107;">WITHDRAW</b> Infra:</p>
-          <p><b>${infraid}</b></p>
+          <p><b>${safeInfraid}</b></p>
           <br>
           <p style="color: #ffc107;"><b>⚠️ WARNING:</b> This will shut down all Nodes in the Infra.</p>
         </div>
@@ -18992,14 +19129,68 @@ function executeAction(action) {
         controlInfra(action);
       }
     });
+  } else if (action === 'abort') {
+    var infraid = getSelectedInfraId();
+    var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
+    Swal.fire({
+      title: "⚠️ Confirm Abort",
+      html: `
+        <div style="text-align: left; margin: 20px;">
+          <p>You are about to <b style="color: #dc3545;">ABORT</b> Infra:</p>
+          <p><b>${safeInfraid}</b></p>
+          <br>
+          <p style="color: #dc3545;"><b>⚠️ WARNING:</b> This force-terminates every non-final Node in parallel
+          (with orphan rescue) and sweeps any <code>Failed</code> remnants.</p>
+          <p>This is intended for Infras that are <b>stuck</b> after a server restart or partial provisioning failure.</p>
+          <p>The final <code>DELETE</code> is <b>not</b> issued automatically — run it after termination completes.</p>
+        </div>
+      `,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Abort",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#dc3545",
+      cancelButtonColor: "#6c757d"
+    }).then((result) => {
+      if (result.isConfirmed) {
+        controlInfra(action);
+      }
+    });
+  } else if (action === 'reconcile') {
+    var infraid = getSelectedInfraId();
+    var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
+    Swal.fire({
+      title: "🩹 Confirm Reconcile",
+      html: `
+        <div style="text-align: left; margin: 20px;">
+          <p>Reconcile Infra: <b>${safeInfraid}</b></p>
+          <br>
+          <p>This queries Spider for the real CSP status of every transient Node and absorbs CSP-side
+          orphan VMs created before a server crash. Nodes that cannot be matched are marked
+          <code>Failed</code> so a subsequent <b>Refine</b> can clean them up.</p>
+          <p style="color:#666;"><i>No new VMs are created.</i></p>
+        </div>
+      `,
+      icon: "info",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Reconcile",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#17a2b8",
+      cancelButtonColor: "#6c757d"
+    }).then((result) => {
+      if (result.isConfirmed) {
+        controlInfra(action);
+      }
+    });
   } else if (action === 'delete') {
     var infraid = getSelectedInfraId();
+    var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
     Swal.fire({
       title: "⚠️ Confirm Delete",
       html: `
         <div style="text-align: left; margin: 20px;">
           <p>You are about to <b style="color: #dc3545;">DELETE</b> Infra:</p>
-          <p><b>${infraid}</b></p>
+          <p><b>${safeInfraid}</b></p>
           <br>
           <p style="color: #dc3545;"><b>⚠️ WARNING:</b> This action is <b>IRREVERSIBLE</b>!</p>
           <p style="color: #dc3545;">The Infra and all associated resources will be permanently removed.</p>
@@ -19019,13 +19210,14 @@ function executeAction(action) {
   } else {
     // For other actions, execute directly with brief confirmation
     var infraid = document.getElementById("infraid").value;
+    var safeInfraid = window.escapeHtml ? window.escapeHtml(infraid) : infraid;
     var actionName = action.charAt(0).toUpperCase() + action.slice(1);
     
     Swal.fire({
       title: `Confirm ${actionName}`,
       html: `
         <div style="text-align: center; margin: 20px;">
-          <p>Execute <b>${actionName}</b> on Infra: <b>${infraid}</b>?</p>
+          <p>Execute <b>${actionName}</b> on Infra: <b>${safeInfraid}</b>?</p>
         </div>
       `,
       icon: "question",
