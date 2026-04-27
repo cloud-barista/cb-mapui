@@ -9316,7 +9316,7 @@ function parseLabelsString(labelsText) {
     labelsText.split(',').forEach(pair => {
       const [key, value] = pair.trim().split('=');
       if (key && value) {
-        labels[key.trim()] = value.trim();
+        labels[key.trim().toLowerCase()] = value.trim();
       }
     });
   }
@@ -12761,6 +12761,43 @@ function setDefaultRemoteCommandsByApp(appName) {
       defaultRemoteCommand[1] = "";
       defaultRemoteCommand[2] = "";
       break;
+    case "K8sDemoApp":
+      // Deploy hello-kubernetes demo app (shows pod name per request — great for scaling demo)
+      // Exposes via NodePort; refresh browser to see load balanced across pods
+      // $$Func(GetPublicIP(target=this)) is resolved by cb-tumblebug to the VM's actual public IP before SSH
+      defaultRemoteCommand[0] = "kubectl create deployment hello-kubernetes --image=paulbouwer/hello-kubernetes:1.10 --replicas=2 2>/dev/null || kubectl scale deployment/hello-kubernetes --replicas=2; kubectl expose deployment hello-kubernetes --type=NodePort --port=8080 --name=hello-svc 2>/dev/null || true; kubectl rollout status deployment/hello-kubernetes --timeout=120s; NODE_PORT=$(kubectl get svc hello-svc -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null); echo ''; echo '[K8S_DEMO_APP_URL]'; echo \"http://$$Func(GetPublicIP(target=this)):${NODE_PORT}\"; echo '(Refresh browser to see different pod names handling each request)'";
+      defaultRemoteCommand[1] = "";
+      defaultRemoteCommand[2] = "";
+      break;
+    case "K8sScaleApp":
+      // Scale hello-kubernetes deployment to demonstrate K8s replication
+      // Set REPLICA_COUNT; after scaling, refresh demo app URL to see different pods respond
+      defaultRemoteCommand[0] = "kubectl scale deployment hello-kubernetes --replicas=<REPLICA_COUNT>; kubectl rollout status deployment/hello-kubernetes --timeout=60s; echo ''; echo '=== Pods ==='; kubectl get pods -l app=hello-kubernetes -o wide";
+      defaultRemoteCommand[1] = "";
+      defaultRemoteCommand[2] = "";
+      break;
+    case "K8sLoadTest":
+      // Create K8s Batch Job that sends HTTP requests to the demo app service
+      // Demonstrates K8s Job feature; run K8sScaleApp first for visible load distribution
+      defaultRemoteCommand[0] = "kubectl delete job http-load-test 2>/dev/null; kubectl create job http-load-test --image=busybox -- sh -c 'i=0; while [ $i -lt 300 ]; do wget -q -O /dev/null http://hello-svc:8080 2>/dev/null; i=$((i+1)); done; echo LOAD_TEST_DONE_300_REQUESTS'; echo 'Job created. Watching pod status...'; sleep 3; kubectl get pods -l job-name=http-load-test -o wide; echo ''; kubectl top pods 2>/dev/null || echo '(install metrics-server to see CPU/memory stats)'";
+      defaultRemoteCommand[1] = "";
+      defaultRemoteCommand[2] = "";
+      break;
+    case "K8sDashboard":
+      // Install official Kubernetes Dashboard with NodePort access
+      // Outputs access URL (https) and login token; accept self-signed cert in browser
+      defaultRemoteCommand[0] = "kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml; kubectl create serviceaccount dashboard-admin -n kubernetes-dashboard 2>/dev/null; kubectl create clusterrolebinding dashboard-admin --clusterrole=cluster-admin --serviceaccount=kubernetes-dashboard:dashboard-admin 2>/dev/null; kubectl patch svc kubernetes-dashboard -n kubernetes-dashboard -p '{\"spec\":{\"type\":\"NodePort\",\"ports\":[{\"port\":443,\"targetPort\":8443,\"nodePort\":30443}]}}'; kubectl rollout status deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=120s; TOKEN=$(kubectl -n kubernetes-dashboard create token dashboard-admin --duration=24h 2>/dev/null); echo ''; echo '[K8S_DASHBOARD_URL]'; echo 'https://$$Func(GetPublicIP(target=this)):30443'; echo ''; echo '[K8S_DASHBOARD_TOKEN]'; echo \"$TOKEN\"; echo ''; echo '(1) Open URL in browser and accept the self-signed cert warning'; echo '(2) Select Token login and paste the token above'";
+      defaultRemoteCommand[1] = "";
+      defaultRemoteCommand[2] = "";
+      break;
+    case "K8sPortainer":
+      // Deploy Portainer CE for K8s visual cluster management and monitoring
+      // LTS release auto-configures NodePort 30779 (HTTPS) and 30777 (HTTP)
+      // First login: set admin password (min 12 chars), then select K8s environment
+      defaultRemoteCommand[0] = "kubectl create namespace portainer 2>/dev/null; kubectl apply -n portainer -f https://downloads.portainer.io/ce-lts/portainer.yaml; kubectl rollout status deployment/portainer -n portainer --timeout=180s; echo ''; echo '[PORTAINER_URL (HTTPS)]'; echo 'https://$$Func(GetPublicIP(target=this)):30779'; echo '[PORTAINER_URL (HTTP)]'; echo 'http://$$Func(GetPublicIP(target=this)):30777'; echo ''; echo '(1) Open URL → set admin password (12+ chars)'; echo '(2) Choose \"Get Started\" → K8s environment is auto-detected'";
+      defaultRemoteCommand[1] = "";
+      defaultRemoteCommand[2] = "";
+      break;
     case "Westward":
       defaultRemoteCommand[0] = "wget https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/setgame.sh";
       defaultRemoteCommand[1] = "chmod +x ~/setgame.sh; sudo ~/setgame.sh";
@@ -13093,6 +13130,11 @@ window.PLACEHOLDER_METADATA = {
     hint: 'kubeadm join 10.0.0.1:6443 --token abc.123 --discovery-token-ca-cert-hash sha256:xyz',
     secret: false,
   },
+  'REPLICA_COUNT': {
+    description: 'Number of pod replicas',
+    hint: '3',
+    secret: false,
+  },
   'HF_TOKEN': {
     description: 'Hugging Face API token',
     hint: 'hf_xxxxxxxxxxxxxxxxxxxxx',
@@ -13186,6 +13228,19 @@ window.renderPlaceholderInputs = function() {
   const cmdContainer = document.getElementById('cmdContainer');
   if (!cmdContainer) return;
 
+  // Collect all existing placeholder values before removing any panels
+  const savedValues = {}; // { cmdIndex: { placeholderName: value } }
+  cmdContainer.querySelectorAll('.placeholder-panel').forEach(panel => {
+    panel.querySelectorAll('.placeholder-input').forEach(input => {
+      if (input.value && input.dataset.cmdIndex && input.dataset.placeholderName) {
+        const ci = input.dataset.cmdIndex;
+        if (!savedValues[ci]) savedValues[ci] = {};
+        savedValues[ci][input.dataset.placeholderName] = input.value;
+      }
+    });
+    panel.remove();
+  });
+
   const cmdDivs = cmdContainer.querySelectorAll('[id^="cmdDiv"]');
   cmdDivs.forEach((div, idx) => {
     const cmdIndex = idx + 1;
@@ -13193,18 +13248,7 @@ window.renderPlaceholderInputs = function() {
     if (!textarea) return;
 
     const placeholders = window.extractPlaceholders(textarea.value);
-
-    // Preserve existing input values before removing panel
-    const existingPanel = div.querySelector('.placeholder-panel');
-    const existingValues = {};
-    if (existingPanel) {
-      existingPanel.querySelectorAll('.placeholder-input').forEach(input => {
-        if (input.value) {
-          existingValues[input.dataset.placeholderName] = input.value;
-        }
-      });
-      existingPanel.remove();
-    }
+    const existingValues = savedValues[String(cmdIndex)] || {};
 
     if (placeholders.length === 0) return;
 
@@ -13346,23 +13390,28 @@ window.predefinedScriptCategories = {
   },
   'k8s': {
     label: '☸️ Kubernetes',
-    description: 'Kubernetes cluster deployment — Standard, GPU, or llm-d (distributed LLM inference). Steps 4-6 are for GPU workers; steps 9-13 are for llm-d only.',
+    description: 'Kubernetes cluster deployment — Standard, GPU, or llm-d (distributed LLM inference). Steps 4-6 are for GPU workers; steps 9-13 are for llm-d only. Steps 14-17 are demo apps and visualization tools.',
     scripts: [
-      { value: 'Setup-WireGuard',        label: '0. Setup WireGuard VPN (optional)',         step: 0,  optional: true },
-      { value: 'K8sControlPlane-Deploy', label: '1. Deploy Control Plane (Standard)',         step: 1,  targetLabel: 'role=control' },
-      { value: 'K8sLlmdControlPlane',    label: '1-alt. Deploy Control Plane (llm-d)',        step: 1,  targetLabel: 'role=control', optional: true },
-      { value: 'K8sGetJoinCommand',      label: '2. Get Join Command',                        step: 2,  targetLabel: 'role=control', syncMode: true },
-      { value: 'K8sGetKubeconfig',       label: '3. Get Kubeconfig (Base64)',                 step: 3,  targetLabel: 'role=control', syncMode: true },
-      { value: 'Nvidia',                 label: '4. Install GPU Driver (GPU worker only)',    step: 4,  targetLabel: 'accelerator=gpu', optional: true },
-      { value: 'RebootVM',               label: '5. Reboot Node (GPU worker only)',             step: 5,  targetLabel: 'role=node', optional: true },
-      { value: 'Nvidia-Status',          label: '6. Check GPU Driver (GPU worker only)',      step: 6,  targetLabel: 'accelerator=gpu', optional: true, syncMode: true },
-      { value: 'K8sWorker-Deploy',       label: '7. Deploy Worker & Join Cluster',           step: 7,  targetLabel: 'role=node' },
-      { value: 'K8sClusterStatus',       label: '8. Check Cluster Status',                   step: 8,  targetLabel: 'role=control', syncMode: true },
-      { value: 'K8sGpuStatus',           label: '9. Check GPU Operator Status (GPU/llm-d)',  step: 9,  targetLabel: 'role=control', optional: true, syncMode: true },
-      { value: 'LlmdCheck',              label: '10. Check llm-d Prerequisites (llm-d only)',step: 10, targetLabel: 'role=control', optional: true, syncMode: true },
-      { value: 'LlmdDeployWithModel',    label: '11. Deploy llm-d with Model (llm-d only)',  step: 11, targetLabel: 'role=control', optional: true },
-      { value: 'LlmdStatus',             label: '12. Check llm-d Status (llm-d only)',       step: 12, targetLabel: 'role=control', optional: true, syncMode: true },
-      { value: 'LlmdUninstall',          label: '13. Uninstall llm-d (llm-d only)',          step: 13, targetLabel: 'role=control', optional: true }
+      { value: 'Setup-WireGuard',        label: '0. Setup WireGuard VPN (optional)',              step: 0,  optional: true },
+      { value: 'K8sControlPlane-Deploy', label: '1. Deploy Control Plane (Standard)',              step: 1,  targetLabel: 'role=control' },
+      { value: 'K8sLlmdControlPlane',    label: '1-alt. Deploy Control Plane (llm-d)',             step: 1,  targetLabel: 'role=control', optional: true },
+      { value: 'K8sGetJoinCommand',      label: '2. Get Join Command',                             step: 2,  targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sGetKubeconfig',       label: '3. Get Kubeconfig (Base64)',                      step: 3,  targetLabel: 'role=control', syncMode: true },
+      { value: 'Nvidia',                 label: '4. Install GPU Driver (GPU worker only)',         step: 4,  targetLabel: 'accelerator=gpu', optional: true },
+      { value: 'RebootVM',               label: '5. Reboot Node (GPU worker only)',                step: 5,  targetLabel: 'role=node', optional: true },
+      { value: 'Nvidia-Status',          label: '6. Check GPU Driver (GPU worker only)',           step: 6,  targetLabel: 'accelerator=gpu', optional: true, syncMode: true },
+      { value: 'K8sWorker-Deploy',       label: '7. Deploy Worker & Join Cluster',                step: 7,  targetLabel: 'role=node' },
+      { value: 'K8sClusterStatus',       label: '8. Check Cluster Status',                        step: 8,  targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sGpuStatus',           label: '9. Check GPU Operator Status (GPU/llm-d)',       step: 9,  targetLabel: 'role=control', optional: true, syncMode: true },
+      { value: 'LlmdCheck',              label: '10. Check llm-d Prerequisites (llm-d only)',     step: 10, targetLabel: 'role=control', optional: true, syncMode: true },
+      { value: 'LlmdDeployWithModel',    label: '11. Deploy llm-d with Model (llm-d only)',       step: 11, targetLabel: 'role=control', optional: true },
+      { value: 'LlmdStatus',             label: '12. Check llm-d Status (llm-d only)',            step: 12, targetLabel: 'role=control', optional: true, syncMode: true },
+      { value: 'LlmdUninstall',          label: '13. Uninstall llm-d (llm-d only)',               step: 13, targetLabel: 'role=control', optional: true },
+      { value: 'K8sDemoApp',             label: '14. Deploy Demo Web App (NodePort)',              step: 14, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sScaleApp',            label: '15. Scale Demo App (set replica count)',          step: 15, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sLoadTest',            label: '16. Run Load Test (Batch Job → demo app)',        step: 16, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sDashboard',           label: '17. Install K8s Dashboard (Visualization)',       step: 17, targetLabel: 'role=control', syncMode: true },
+      { value: 'K8sPortainer',           label: '18. Install Portainer CE (Visual Cluster Monitor)', step: 18, targetLabel: 'role=control', syncMode: true }
     ]
   },
   'ml-ray': {
@@ -13720,11 +13769,11 @@ window.extractLabelsFromInfra = function(infraId) {
     nodes.push({
       id: nd.id,
       name: nd.name || nd.id,
-      label: nodeConf.label || {}
+      label: nd.label || {}
     });
-    
-    if (nodeConf.label && typeof nodeConf.label === 'object') {
-      Object.entries(nodeConf.label).forEach(([key, value]) => {
+
+    if (nd.label && typeof nd.label === 'object') {
+      Object.entries(nd.label).forEach(([key, value]) => {
         if (!labelMap[key]) {
           labelMap[key] = new Set();
         }
