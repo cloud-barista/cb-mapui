@@ -299,6 +299,44 @@ function showMapRefreshIndicator(show) {
   }
 }
 
+function updateRunningCostDisplay(infraList) {
+  const el = document.getElementById('running-cost-display');
+  const valEl = document.getElementById('running-cost-value');
+  const badgeEl = document.getElementById('running-cost-unknown-badge');
+  if (!el || !valEl || !badgeEl) return;
+
+  let total = 0;
+  let runningCount = 0;
+  let unknownCount = 0;
+
+  (infraList || []).forEach(infra => {
+    (infra.node || []).forEach(nd => {
+      if (nd.status !== 'Running') return;
+      runningCount++;
+      const cost = nd.spec?.costPerHour;
+      if (cost == null || cost < 0) {
+        unknownCount++;
+      } else {
+        total += cost;
+      }
+    });
+  });
+
+  if (runningCount === 0) {
+    el.style.display = 'none';
+    return;
+  }
+
+  el.style.display = 'block';
+  valEl.textContent = `$${total.toFixed(4)}/h+`;
+  if (unknownCount > 0) {
+    badgeEl.style.display = 'inline';
+    badgeEl.title = `${unknownCount} running node${unknownCount > 1 ? 's have' : ' has'} no cost info`;
+  } else {
+    badgeEl.style.display = 'none';
+  }
+}
+
 // Show map settings
 function showMapSettings() {
   // Get current refresh interval from global variable
@@ -3275,13 +3313,16 @@ function getInfra() {
           
           // Load VPN data from the Infras we just fetched (reusing Infra data)
           loadVpnDataFromInfras();
-          
+
+          // Update running cost display
+          updateRunningCostDisplay(obj.infra);
+
           // Notify Dashboard subscribers
           notifyDataSubscribers();
-          
+
           // Update map connection status to connected
           updateMapConnectionStatus('connected');
-          
+
           // Hide refresh indicator
           showMapRefreshIndicator(false);
         }
@@ -3590,16 +3631,17 @@ function getInfra() {
         } else {
           // No Infra data — map is already cleared above
           console.log("No Infra data found, clearing map objects");
+          updateRunningCostDisplay([]);
           map.render();
         }
       })
       .catch(function (error) {
         console.log("Infra API error:", error);
         // Don't update geometries on API error to preserve current state
-        
+
         // Update map connection status to disconnected
         updateMapConnectionStatus('disconnected');
-        
+
         // Hide refresh indicator
         showMapRefreshIndicator(false);
       });
