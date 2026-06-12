@@ -1281,14 +1281,14 @@ function updateStatistics() {
   });
 
   // Calculate total unique regions from Nodes and K8s clusters
+  // Use provider:region composite key to avoid counting same-named regions across different CSPs as one.
   const regions = new Set();
-  
+
   // Add regions from Nodes
   nodeData.forEach(nd => {
     let region = null;
-    
-    // Extract region information - try multiple sources
-    // Note: JSON field is lowercase 'region' (from Go struct tag `json:"region"`)
+    const provider = nd.connectionConfig && nd.connectionConfig.providerName ? nd.connectionConfig.providerName : '';
+
     if (nd.region && nd.region.region) {
       region = nd.region.region;
     } else if (nd.location && nd.location.region) {
@@ -1298,18 +1298,17 @@ function updateStatistics() {
     } else if (nd.regionZoneInfoList && nd.regionZoneInfoList.length > 0 && nd.regionZoneInfoList[0].regionName) {
       region = nd.regionZoneInfoList[0].regionName;
     }
-    
+
     if (region) {
-      regions.add(region);
+      regions.add(provider ? `${provider}:${region}` : region);
     }
   });
-  
+
   // Add regions from K8s clusters
   k8sData.forEach(cluster => {
     let region = null;
-    
-    // Extract region information from cluster
-    // Note: JSON field is lowercase 'region' (from Go struct tag `json:"region"`)
+    const provider = cluster.connectionConfig && cluster.connectionConfig.providerName ? cluster.connectionConfig.providerName : '';
+
     if (cluster.region && cluster.region.region) {
       region = cluster.region.region;
     } else if (cluster.location && cluster.location.region) {
@@ -1317,9 +1316,9 @@ function updateStatistics() {
     } else if (cluster.connectionConfig && cluster.connectionConfig.regionZoneInfo && cluster.connectionConfig.regionZoneInfo.region) {
       region = cluster.connectionConfig.regionZoneInfo.region;
     }
-    
+
     if (region) {
-      regions.add(region);
+      regions.add(provider ? `${provider}:${region}` : region);
     }
   });
   

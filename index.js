@@ -5752,12 +5752,8 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
           });
         }
         
-        // Region breakdown  
-        if (rs.regionNames && Array.isArray(rs.regionNames)) {
-          rs.regionNames.forEach(region => {
-            resourceSummary.regionBreakdown[region] = (resourceSummary.regionBreakdown[region] || 0) + 1;
-          });
-        }
+        // regionBreakdown is rebuilt from nodeReviews below using provider+region keys
+        // to avoid counting same-named regions across different CSPs as one region.
         
         // Spec breakdown
         if (rs.uniqueSpecs && Array.isArray(rs.uniqueSpecs)) {
@@ -5773,6 +5769,7 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
         
         // Group Nodes by NodeGroup name for better organization
         var nodeGroupVMs = {};
+        var nodeGroupRegions = {}; // nodeGroupName -> {provider, region}
         
         reviewData.nodeReviews.forEach((nodeReview, index) => {
           var nodeDetails = {
@@ -5807,6 +5804,14 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
             nodeGroupVMs[groupKey] = [];
           }
           nodeGroupVMs[groupKey].push(nodeDetails);
+
+          // Record provider+region for this nodegroup (first occurrence wins)
+          if (!nodeGroupRegions[groupKey] && nodeReview.regionName) {
+            nodeGroupRegions[groupKey] = {
+              provider: nodeReview.providerName || '',
+              region: nodeReview.regionName
+            };
+          }
           
           // Spec validation details
           if (nodeReview.specValidation) {
@@ -5913,6 +5918,13 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
         });
       }
       
+      // Build regionBreakdown using provider+region keys to correctly distinguish
+      // same-named regions across different CSPs (e.g., alibaba ap-northeast-2 vs aws ap-northeast-2)
+      Object.values(nodeGroupRegions).forEach(function(info) {
+        var key = info.provider ? (info.provider + ' (' + info.region + ')') : info.region;
+        resourceSummary.regionBreakdown[key] = (resourceSummary.regionBreakdown[key] || 0) + 1;
+      });
+
       // Extract recommendations
       if (reviewData.recommendations && Array.isArray(reviewData.recommendations)) {
         reviewData.recommendations.forEach(rec => {
