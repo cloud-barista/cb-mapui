@@ -7581,7 +7581,7 @@ function createK8sCluster() {
           .then(imageDesignationNeeded => {
             removeSpinnerTask(taskId);
             
-            // K8s 클러스터 동적 생성 요청 바디를 새로운 중첩 구조(nodeGroups)로 빌드
+            // Build K8s cluster dynamic request body with new nested nodeGroups structure
             const k8sClusterReq = {
               name: clusterName,
               nodeGroups: [
@@ -7593,17 +7593,17 @@ function createK8sCluster() {
               ]
             };
             
-            // 버전에 명시되어 있다면 설정
+            // Set version if specified
             if (k8sVersion) {
               k8sClusterReq.version = k8sVersion;
             }
             
-            // rootDisk 설정이 존재한다면 첫 번째 노드그룹 내에 설정 주입
+            // Inject rootDisk settings into the first node group if available
             if (nodeGroup.rootDiskType) {
               k8sClusterReq.nodeGroups[0].rootDiskType = nodeGroup.rootDiskType;
             }
             if (nodeGroup.rootDiskSize) {
-              // Go의 int 타입 바인딩 매칭을 위해 문자열을 숫자로 파싱
+              // Parse string to number to match Go int type binding
               k8sClusterReq.nodeGroups[0].rootDiskSize = parseInt(nodeGroup.rootDiskSize, 10);
             }
 
