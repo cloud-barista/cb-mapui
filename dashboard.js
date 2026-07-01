@@ -1669,9 +1669,9 @@ function updateProviderRegionChart() {
       } else if (cluster.location && cluster.location.cloudType) {
         provider = cluster.location.cloudType.toLowerCase(); // Normalize to lowercase
         console.log('Provider from location.cloudType:', provider);
-      } else if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0 && cluster.k8sNodeGroupList[0].connectionConfig && cluster.k8sNodeGroupList[0].connectionConfig.providerName) {
-        provider = cluster.k8sNodeGroupList[0].connectionConfig.providerName.toLowerCase(); // Normalize to lowercase
-        console.log('Provider from k8sNodeGroupList[0].connectionConfig.providerName:', provider);
+      } else if (cluster.nodeGroups && cluster.nodeGroups.length > 0 && cluster.nodeGroups[0].connectionConfig && cluster.nodeGroups[0].connectionConfig.providerName) {
+        provider = cluster.nodeGroups[0].connectionConfig.providerName.toLowerCase(); // Normalize to lowercase
+        console.log('Provider from nodeGroups[0].connectionConfig.providerName:', provider);
       }
       
       // Extract region information from cluster
@@ -1700,9 +1700,9 @@ function updateProviderRegionChart() {
       }
       
       // Count nodes from all node groups in this cluster
-      if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0) {
-        console.log('Processing node groups:', cluster.k8sNodeGroupList);
-        cluster.k8sNodeGroupList.forEach(nodeGroup => {
+      if (cluster.nodeGroups && cluster.nodeGroups.length > 0) {
+        console.log('Processing node groups:', cluster.nodeGroups);
+        cluster.nodeGroups.forEach(nodeGroup => {
           console.log('Processing NodeGroup:', nodeGroup.name || nodeGroup.id);
           console.log('NodeGroup data:', nodeGroup);
           
@@ -1876,8 +1876,8 @@ function updateK8sCharts() {
       }
       
       // Process node groups
-      if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0) {
-        cluster.k8sNodeGroupList.forEach(nodeGroup => {
+      if (cluster.nodeGroups && cluster.nodeGroups.length > 0) {
+        cluster.nodeGroups.forEach(nodeGroup => {
           console.log('Processing nodeGroup:', nodeGroup.name || nodeGroup.id, 'status:', nodeGroup.status);
           
           // Count node groups by status (use cluster status if nodeGroup status not available)
@@ -2988,11 +2988,11 @@ function updateK8sClusterTable() {
     // Count total nodes in all node groups
     let totalNodes = 0;
     let nodeGroupsInfo = '';
-    if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0) {
-      totalNodes = cluster.k8sNodeGroupList.reduce((sum, ng) => {
+    if (cluster.nodeGroups && cluster.nodeGroups.length > 0) {
+      totalNodes = cluster.nodeGroups.reduce((sum, ng) => {
         return sum + (ng.desiredNodeSize || ng.spiderViewK8sNodeGroupDetail?.DesiredNodeSize || 0);
       }, 0);
-      nodeGroupsInfo = `${cluster.k8sNodeGroupList.length} groups (${totalNodes} nodes)`;
+      nodeGroupsInfo = `${cluster.nodeGroups.length} groups (${totalNodes} nodes)`;
     } else {
       nodeGroupsInfo = '0 groups';
     }
@@ -3112,12 +3112,12 @@ function updateK8sNodeGroupTable() {
   k8sData.forEach(cluster => {
     console.log('Processing cluster:', cluster.id, 'Full cluster object:', cluster);
     
-    // Handle different possible node group field names - comprehensive check
-    let nodeGroups = cluster.k8sNodeGroupList || cluster.nodeGroupList || cluster.nodeGroups || cluster.NodeGroupList || cluster.K8sNodeGroupList || [];
+    // Handle different possible node group field names - comprehensive check (nodeGroups is the new primary field)
+    let nodeGroups = cluster.nodeGroups || cluster.k8sNodeGroupList || cluster.nodeGroupList || cluster.NodeGroupList || cluster.K8sNodeGroupList || [];
     console.log('Found node groups:', nodeGroups, 'Field used:', 
+      cluster.nodeGroups ? 'nodeGroups' :
       cluster.k8sNodeGroupList ? 'k8sNodeGroupList' :
       cluster.nodeGroupList ? 'nodeGroupList' :
-      cluster.nodeGroups ? 'nodeGroups' :
       cluster.NodeGroupList ? 'NodeGroupList' :
       cluster.K8sNodeGroupList ? 'K8sNodeGroupList' : 'none');
     
@@ -4122,8 +4122,8 @@ function viewNodeGroupDetails(clusterId, nodeGroupName) {
     return;
   }
   
-  // Check multiple possible field names for node group list
-  let nodeGroupList = cluster.k8sNodeGroupList || cluster.nodeGroupList || cluster.nodeGroups || cluster.NodeGroupList || cluster.K8sNodeGroupList || [];
+  // Check multiple possible field names for node group list (nodeGroups is the new primary field)
+  let nodeGroupList = cluster.nodeGroups || cluster.k8sNodeGroupList || cluster.nodeGroupList || cluster.NodeGroupList || cluster.K8sNodeGroupList || [];
   
   if (!nodeGroupList || nodeGroupList.length === 0) {
     showErrorMessage('No node groups found for this cluster');
@@ -4169,8 +4169,9 @@ function scaleNodeGroup(clusterId, nodeGroupName) {
   const cluster = k8sData.find(c => c.id === clusterId);
   let currentNodeGroup = null;
   
-  if (cluster && cluster.k8sNodeGroupList) {
-    currentNodeGroup = cluster.k8sNodeGroupList.find(ng => ng.name === nodeGroupName || ng.id === nodeGroupName);
+  if (cluster && (cluster.nodeGroups || cluster.k8sNodeGroupList)) {
+    const nodeGroupListForSearch = cluster.nodeGroups || cluster.k8sNodeGroupList;
+    currentNodeGroup = nodeGroupListForSearch.find(ng => ng.name === nodeGroupName || ng.id === nodeGroupName);
   }
   
   // Set default values from current node group if available
@@ -4326,8 +4327,9 @@ function deleteNodeGroup(nodeGroupId, clusterId = null) {
   if (!clusterId) {
     const k8sData = centralData.k8sCluster || [];
     for (const cluster of k8sData) {
-      if (cluster.k8sNodeGroupList) {
-        const foundNodeGroup = cluster.k8sNodeGroupList.find(ng => ng.id === nodeGroupId);
+      const nodeGroupListForCluster = cluster.nodeGroups || cluster.k8sNodeGroupList;
+      if (nodeGroupListForCluster) {
+        const foundNodeGroup = nodeGroupListForCluster.find(ng => ng.id === nodeGroupId);
         if (foundNodeGroup) {
           clusterId = cluster.id;
           break;
@@ -4537,9 +4539,8 @@ window.debugK8sData = function() {
       console.log(`Cluster ${index}:`, cluster);
       console.log(`  - ID: ${cluster.id}`);
       console.log(`  - Status: ${cluster.status}`);
-      console.log(`  - k8sNodeGroupList:`, cluster.k8sNodeGroupList);
-      console.log(`  - nodeGroupList:`, cluster.nodeGroupList);
-      console.log(`  - nodeGroups:`, cluster.nodeGroups);
+      console.log(`  - nodeGroups (primary):`, cluster.nodeGroups);
+      console.log(`  - k8sNodeGroupList (legacy):`, cluster.k8sNodeGroupList);
       console.log(`  - NodeGroupList:`, cluster.NodeGroupList);
       console.log(`  - K8sNodeGroupList:`, cluster.K8sNodeGroupList);
     });

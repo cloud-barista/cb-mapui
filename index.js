@@ -7370,20 +7370,23 @@ function createK8sCluster() {
       if (result.isConfirmed) {
         const { namePrefix } = result.value;
         
-        // Build multi-cluster request
+        // Build multi-cluster request using new nested nodeGroups structure
         const clusters = nodeGroupRequestFromSpecList.map((sg, idx) => {
-          const clusterReq = {
-            imageId: sg.imageId || "default",
-            specId: sg.specId
+          const nodeGroupReq = {
+            name: sg.name || sg.nodeGroupName || ('ng-' + (idx + 1)),
+            specId: sg.specId,
+            imageId: sg.imageId || "default"
           };
-          if (sg.rootDiskType) clusterReq.rootDiskType = sg.rootDiskType;
-          if (sg.rootDiskSize) clusterReq.rootDiskSize = sg.rootDiskSize;
-          if (sg.nodeGroupName || sg.name) clusterReq.nodeGroupName = sg.nodeGroupName || sg.name;
+          if (sg.rootDiskType) nodeGroupReq.rootDiskType = sg.rootDiskType;
+          if (sg.rootDiskSize) nodeGroupReq.rootDiskSize = parseInt(sg.rootDiskSize, 10);
+          if (sg.nodeGroupSize || sg.desiredNodeSize) nodeGroupReq.desiredNodeSize = sg.nodeGroupSize || sg.desiredNodeSize;
+          if (sg.minNodeSize) nodeGroupReq.minNodeSize = sg.minNodeSize;
+          if (sg.maxNodeSize) nodeGroupReq.maxNodeSize = sg.maxNodeSize;
+          if (sg.onAutoScaling) nodeGroupReq.onAutoScaling = sg.onAutoScaling;
+          const clusterReq = {
+            nodeGroups: [nodeGroupReq]
+          };
           if (sg.version) clusterReq.version = sg.version;
-          if (sg.nodeGroupSize || sg.desiredNodeSize) clusterReq.desiredNodeSize = sg.nodeGroupSize || sg.desiredNodeSize;
-          if (sg.minNodeSize) clusterReq.minNodeSize = sg.minNodeSize;
-          if (sg.maxNodeSize) clusterReq.maxNodeSize = sg.maxNodeSize;
-          if (sg.onAutoScaling) clusterReq.onAutoScaling = sg.onAutoScaling;
           if (sg.connectionName) clusterReq.connectionName = sg.connectionName;
           return clusterReq;
         });
@@ -7578,25 +7581,30 @@ function createK8sCluster() {
           .then(imageDesignationNeeded => {
             removeSpinnerTask(taskId);
             
-            // Create K8s cluster request body
+            // K8s 클러스터 동적 생성 요청 바디를 새로운 중첩 구조(nodeGroups)로 빌드
             const k8sClusterReq = {
-              imageId: imageDesignationNeeded ? (nodeGroup.imageId || "default") : "default",
-              specId: nodeGroup.specId,
               name: clusterName,
-              nodeGroupName: nodeGroupName
+              nodeGroups: [
+                {
+                  name: nodeGroupName,
+                  imageId: imageDesignationNeeded ? (nodeGroup.imageId || "default") : "default",
+                  specId: nodeGroup.specId
+                }
+              ]
             };
             
-            // Add version if specified
+            // 버전에 명시되어 있다면 설정
             if (k8sVersion) {
               k8sClusterReq.version = k8sVersion;
             }
             
-            // Add rootDiskType and rootDiskSize if available
+            // rootDisk 설정이 존재한다면 첫 번째 노드그룹 내에 설정 주입
             if (nodeGroup.rootDiskType) {
-              k8sClusterReq.rootDiskType = nodeGroup.rootDiskType;
+              k8sClusterReq.nodeGroups[0].rootDiskType = nodeGroup.rootDiskType;
             }
             if (nodeGroup.rootDiskSize) {
-              k8sClusterReq.rootDiskSize = nodeGroup.rootDiskSize;
+              // Go의 int 타입 바인딩 매칭을 위해 문자열을 숫자로 파싱
+              k8sClusterReq.nodeGroups[0].rootDiskSize = parseInt(nodeGroup.rootDiskSize, 10);
             }
 
             // Check if using custom version (not from available versions list)
@@ -7709,7 +7717,7 @@ function addNodeGroupToK8sCluster() {
   axios.get(listUrl, { auth: { username, password } }).then(function (response) {
     removeSpinnerTask(listTaskId);
     
-    const clusters = response.data?.cluster || response.data?.K8sClusterInfo || [];
+    const clusters = response.data?.cluster || response.data?.ClusterInfo || [];
     
     if (clusters.length === 0) {
       errorAlert("No K8s clusters found. Please create a K8s cluster first.");
@@ -22669,9 +22677,9 @@ function loadK8sClusterData() {
     
     // Update central data store - handle both response formats
     let k8sClusterData = [];
-    if (obj.K8sClusterInfo) {
-      k8sClusterData = obj.K8sClusterInfo;
-      // console.log('Using K8sClusterInfo field');
+    if (obj.ClusterInfo) {
+      k8sClusterData = obj.ClusterInfo;
+      // console.log('Using ClusterInfo field');
     } else if (obj.cluster) {
       k8sClusterData = obj.cluster;
       // console.log('Using cluster field');
@@ -24082,13 +24090,18 @@ const TEMPLATE_TYPES = [
   "clusters": [
     {
       "connectionName": "aws-ap-northeast-2",
-      "specId": "aws+ap-northeast-2+t3a.xlarge",
-      "imageId": "default",
-      "nodeGroupName": "k8sng01",
-      "desiredNodeSize": 1,
-      "minNodeSize": 1,
-      "maxNodeSize": 2,
-      "onAutoScaling": "true"
+      "version": "1.31",
+      "nodeGroups": [
+        {
+          "name": "k8sng01",
+          "specId": "aws+ap-northeast-2+t3a.xlarge",
+          "imageId": "default",
+          "desiredNodeSize": 1,
+          "minNodeSize": 1,
+          "maxNodeSize": 2,
+          "onAutoScaling": "true"
+        }
+      ]
     }
   ]
 }`
@@ -24950,17 +24963,19 @@ async function loadTemplateToK8sConfig(namespace, templateId) {
   // Populate nodeGroupRequestFromSpecList from k8s cluster configs
   const specFetches = multiReq.clusters.map(function(cluster, idx) {
     var nodeConfig = $.extend({}, createInfraReqVmTmplt);
-    nodeConfig.name          = cluster.nodeGroupName || ('ng-' + (idx + 1));
-    nodeConfig.specId        = cluster.specId        || '';
-    nodeConfig.imageId       = cluster.imageId       || 'default';
-    nodeConfig.rootDiskType  = cluster.rootDiskType  || 'default';
-    nodeConfig.rootDiskSize  = cluster.rootDiskSize  || 0;
-    nodeConfig.nodeGroupSize = cluster.desiredNodeSize || 1;
+    // Support new nested nodeGroups structure (ClusterDynamicReq) as well as legacy flat structure
+    const firstNodeGroup = (cluster.nodeGroups && cluster.nodeGroups[0]) || cluster;
+    nodeConfig.name          = firstNodeGroup.name || cluster.nodeGroupName || ('ng-' + (idx + 1));
+    nodeConfig.specId        = firstNodeGroup.specId        || cluster.specId || '';
+    nodeConfig.imageId       = firstNodeGroup.imageId       || cluster.imageId || 'default';
+    nodeConfig.rootDiskType  = firstNodeGroup.rootDiskType  || cluster.rootDiskType || 'default';
+    nodeConfig.rootDiskSize  = firstNodeGroup.rootDiskSize  || cluster.rootDiskSize || 0;
+    nodeConfig.nodeGroupSize = firstNodeGroup.desiredNodeSize || cluster.desiredNodeSize || 1;
     nodeConfig.connectionName = cluster.connectionName || '';
     // K8s-specific fields stored for createK8sCluster() to pick up
-    nodeConfig.minNodeSize   = cluster.minNodeSize   || 1;
-    nodeConfig.maxNodeSize   = cluster.maxNodeSize   || 3;
-    nodeConfig.onAutoScaling = cluster.onAutoScaling || 'true';
+    nodeConfig.minNodeSize   = firstNodeGroup.minNodeSize   || cluster.minNodeSize   || 1;
+    nodeConfig.maxNodeSize   = firstNodeGroup.maxNodeSize   || cluster.maxNodeSize   || 3;
+    nodeConfig.onAutoScaling = firstNodeGroup.onAutoScaling || cluster.onAutoScaling || 'true';
     nodeConfig.version       = cluster.version       || '';
     nodeGroupRequestFromSpecList.push(nodeConfig);
 
