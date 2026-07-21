@@ -737,6 +737,7 @@ function initializeCharts() {
     const fallbackColors = {
       'Preparing': type === 'infra' ? 'rgba(247, 147, 26, 0.8)' : 'rgba(247, 147, 26, 0.6)',
       'Registering': type === 'infra' ? 'rgba(20, 184, 166, 0.8)' : 'rgba(20, 184, 166, 0.6)',  // teal-500
+      'Reconciling': type === 'infra' ? 'rgba(99, 102, 241, 0.8)' : 'rgba(99, 102, 241, 0.6)',  // indigo-500
       'Creating': type === 'infra' ? 'rgba(59, 130, 246, 0.8)' : 'rgba(59, 130, 246, 0.6)',
       'Running': type === 'infra' ? 'rgba(16, 185, 129, 0.8)' : 'rgba(16, 185, 129, 0.6)',
       'Suspended': type === 'infra' ? 'rgba(245, 158, 11, 0.8)' : 'rgba(245, 158, 11, 0.6)',
@@ -748,7 +749,7 @@ function initializeCharts() {
     return fallbackColors[status] || fallbackColors['Other'];
   }
   
-  const statusLabels = ['Preparing', 'Registering', 'Creating', 'Running', 'Suspended', 'Terminating', 'Terminated', 'Failed', 'Other'];
+  const statusLabels = ['Preparing', 'Registering', 'Reconciling', 'Creating', 'Running', 'Suspended', 'Terminating', 'Terminated', 'Failed', 'Other'];
 
   charts.combinedStatus = new Chart(combinedStatusCtx, {
     type: 'bar',
@@ -757,14 +758,14 @@ function initializeCharts() {
       datasets: [
         {
           label: 'Infra Count',
-          data: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+          data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
           backgroundColor: statusLabels.map(status => getChartColors(status, 'infra')),
           borderColor: 'rgba(52, 58, 64, 1)',        // Dark gray for legend
           legendColor: 'rgba(52, 58, 64, 0.8)',      // Dark gray for legend icon
         },
         {
           label: 'Node Count',
-          data: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+          data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
           backgroundColor: statusLabels.map(status => getChartColors(status, 'node')),
           // Use fixed color for legend (will be overridden during updates)
           borderColor: 'rgba(108, 117, 125, 1)',     // Light gray for legend
@@ -1479,6 +1480,7 @@ function updateCombinedStatusChart() {
   const infraStatusCounts = {
     'Running': 0,
     'Registering': 0,
+    'Reconciling': 0,
     'Creating': 0,
     'Preparing': 0,
     'Suspended': 0,
@@ -1491,6 +1493,7 @@ function updateCombinedStatusChart() {
   const nodeStatusCounts = {
     'Running': 0,
     'Registering': 0,
+    'Reconciling': 0,
     'Creating': 0,
     'Preparing': 0,
     'Suspended': 0,
@@ -1521,7 +1524,7 @@ function updateCombinedStatusChart() {
   });
   
   // Prepare data for combined chart
-  const statusLabels = ['Preparing', 'Registering', 'Creating', 'Running', 'Suspended', 'Terminating', 'Terminated', 'Failed', 'Other'];
+  const statusLabels = ['Preparing', 'Registering', 'Reconciling', 'Creating', 'Running', 'Suspended', 'Terminating', 'Terminated', 'Failed', 'Other'];
   const infraDataArray = statusLabels.map(label => infraStatusCounts[label] || 0);
   const nodeDataArray = statusLabels.map(label => nodeStatusCounts[label] || 0);
   
@@ -1562,6 +1565,8 @@ function updateCombinedStatusChart() {
       // Fallback colors if parent function not available
       const fallbackColors = {
         'Preparing': type === 'infra' ? 'rgba(247, 147, 26, 0.8)' : 'rgba(247, 147, 26, 0.6)',
+        'Registering': type === 'infra' ? 'rgba(20, 184, 166, 0.8)' : 'rgba(20, 184, 166, 0.6)',  // teal-500
+        'Reconciling': type === 'infra' ? 'rgba(99, 102, 241, 0.8)' : 'rgba(99, 102, 241, 0.6)',  // indigo-500
         'Creating': type === 'infra' ? 'rgba(59, 130, 246, 0.8)' : 'rgba(59, 130, 246, 0.6)',
         'Running': type === 'infra' ? 'rgba(16, 185, 129, 0.8)' : 'rgba(16, 185, 129, 0.6)',
         'Suspended': type === 'infra' ? 'rgba(245, 158, 11, 0.8)' : 'rgba(245, 158, 11, 0.6)',
@@ -1792,6 +1797,7 @@ function categorizeStatus(status) {
 
   if (statusStr.includes('running')) return 'Running';
   if (statusStr.includes('registering')) return 'Registering';
+  if (statusStr.includes('reconciling')) return 'Reconciling';
   if (statusStr.includes('creating')) return 'Creating';
   if (statusStr.includes('preparing')) return 'Preparing';
   if (statusStr.includes('empty')) return 'Empty';

@@ -687,6 +687,13 @@ export function initResourceGraph(containerId = 'resource-graph-container') {
           'color': '#14b8a6'  // teal-500
         }
       },
+      // Reconciling state - Indigo (re-syncing Node with CSP truth)
+      {
+        selector: 'node[status="Reconciling"]',
+        style: {
+          'color': '#6366f1'  // indigo-500
+        }
+      },
       {
         selector: 'node[status="Resuming"]',
         style: {

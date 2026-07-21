@@ -1994,6 +1994,10 @@ function getNodeStatusColor(status) {
   else if (status === "Registering" || statusStr.includes("registering")) {
     fillColor = "#14b8a6"; // teal-500 - teal for registration progress
   }
+  // Reconciling state - Indigo (re-syncing Node with CSP truth)
+  else if (status === "Reconciling" || statusStr.includes("reconciling")) {
+    fillColor = "#6366f1"; // indigo-500 - indigo for reconciliation progress
+  }
   else if (status === "Resuming" || statusStr.includes("resuming")) {
     fillColor = "#06b6d4"; // cyan-500 - cyan for resuming
   }
