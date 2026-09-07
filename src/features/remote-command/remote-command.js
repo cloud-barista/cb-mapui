@@ -414,22 +414,33 @@ window.PLACEHOLDER_METADATA = {
   },
   // GuideLLM Benchmark
   'GUIDELLM_PROFILE': {
-    description: 'Benchmark profile (synchronous, constant, sweep, poisson, throughput)',
+    description: 'Benchmark profile (throughput, concurrent, constant, poisson, sweep, synchronous). Ignored when a concurrency sweep is set',
     hint: 'throughput',
     default: 'throughput',
     secret: false,
   },
   'GUIDELLM_MAX_SECONDS': {
-    description: 'Maximum duration per target in seconds',
+    description: 'Duration per target in seconds (per step when sweeping)',
     hint: '180',
     default: '180',
     secret: false,
   },
   'GUIDELLM_RATE': {
-    description: 'Request rate or sweep count (leave blank to use profile default)',
+    description: 'Load level per profile: throughput=max concurrency (default 32), concurrent=streams, constant/poisson=req/s, sweep=step count. Comma list runs one step per value',
     hint: '',
     default: '',
     secret: false,
+  },
+  'GUIDELLM_CONCURRENCY_SWEEP': {
+    description: 'Concurrency sweep START:END:STEP (e.g. 10:150:10). Runs each step for MAX_SECONDS and writes a summary CSV (TTFT/TPOT/ITL per concurrency, per node)',
+    hint: '10:150:10',
+    default: '',
+    secret: false,
+    presets: [
+      { label: 'quick  · 10,20,30 (3 steps)',        value: '10:30:10' },
+      { label: 'medium · 10..100 step 10 (10 steps)', value: '10:100:10' },
+      { label: 'full   · 10..150 step 10 (15 steps)', value: '10:150:10' }
+    ]
   },
   'GUIDELLM_DATA': {
     description: 'Dataset source — HuggingFace dataset ID, or leave blank for synthetic data',

@@ -16021,8 +16021,11 @@ function setDefaultRemoteCommandsByApp(appName) {
       // Uses $$Func(GetPublicIPs(label='accelerator=gpu')) to auto-resolve GPU Node IPs
       // Optional flags (rate, data, data-column-mapper) are only passed when non-empty
       // COLMAP uses single-quote assignment to safely embed JSON double quotes
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/run_guidellm.sh -o /tmp/run_guidellm.sh && PROFILE=\"<GUIDELLM_PROFILE>\"; MAX_SECONDS=\"<GUIDELLM_MAX_SECONDS>\"; RATE=\"<GUIDELLM_RATE>\"; DATA=\"<GUIDELLM_DATA>\"; COLMAP='<GUIDELLM_DATA_COLUMN_MAPPER>'; ARGS=(--ip $$Func(GetPublicIPs(separator=' ', label='accelerator=gpu')) --profile \"$PROFILE\" --max-seconds \"$MAX_SECONDS\"); [ -n \"$RATE\" ] && ARGS+=(--rate \"$RATE\"); [ -n \"$DATA\" ] && ARGS+=(--data \"$DATA\"); [ -n \"$COLMAP\" ] && ARGS+=(--data-column-mapper \"$COLMAP\"); bash /tmp/run_guidellm.sh \"${ARGS[@]}\"";
-      defaultRemoteCommand[1] = "ls -la ~/guidellm_bench/bench_*";
+      // --ids pairs Node names with the IPs (same order) so results are labeled by Node, not IP
+      // --concurrency-sweep runs the concurrent profile once per step; each step lasts MAX_SECONDS
+      defaultRemoteCommandTimeout = 120;
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/run_guidellm.sh -o /tmp/run_guidellm.sh && PROFILE=\"<GUIDELLM_PROFILE>\"; MAX_SECONDS=\"<GUIDELLM_MAX_SECONDS>\"; RATE=\"<GUIDELLM_RATE>\"; SWEEP=\"<GUIDELLM_CONCURRENCY_SWEEP>\"; DATA=\"<GUIDELLM_DATA>\"; COLMAP='<GUIDELLM_DATA_COLUMN_MAPPER>'; ARGS=(--ip $$Func(GetPublicIPs(separator=' ', label='accelerator=gpu')) --ids $$Func(GetNodeIds(separator=' ', label='accelerator=gpu')) --profile \"$PROFILE\" --max-seconds \"$MAX_SECONDS\"); [ -n \"$RATE\" ] && ARGS+=(--rate \"$RATE\"); [ -n \"$SWEEP\" ] && ARGS+=(--concurrency-sweep \"$SWEEP\"); [ -n \"$DATA\" ] && ARGS+=(--data \"$DATA\"); [ -n \"$COLMAP\" ] && ARGS+=(--data-column-mapper \"$COLMAP\"); bash /tmp/run_guidellm.sh \"${ARGS[@]}\"";
+      defaultRemoteCommand[1] = "ls -la ~/guidellm_bench/bench_*_summary.csv";
       defaultRemoteCommand[2] = "";
       break;
     case "HermesAgent":
