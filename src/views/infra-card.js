@@ -503,6 +503,10 @@ function buildInfraNodeSummaryHtml(data) {
 
   // ── Per-NodeGroup sections ─
   const COL_COUNT = 6;
+  const totalNodesInInfra = nodes.length;
+  // Threshold to keep DOM lean: for large infras, cap nodes rendered per NodeGroup
+  const MAX_RENDER_NODES_PER_GROUP = totalNodesInInfra > 500 ? 5 : (totalNodesInInfra > 100 ? 10 : 50);
+
   Object.entries(groups).forEach(([gid, gnodes]) => {
     const first = gnodes[0] || {};
 
@@ -584,7 +588,8 @@ function buildInfraNodeSummaryHtml(data) {
           </thead>
           <tbody>`;
 
-    gnodes.forEach((nd, i) => {
+    const displayedNodes = gnodes.slice(0, MAX_RENDER_NODES_PER_GROUP);
+    displayedNodes.forEach((nd, i) => {
       const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
       const isNew = newNodeSet.has(nd.id);
 
@@ -654,6 +659,13 @@ function buildInfraNodeSummaryHtml(data) {
         </td></tr>`;
       }
     });
+
+    if (gnodes.length > displayedNodes.length) {
+      const remaining = gnodes.length - displayedNodes.length;
+      html += `<tr style="background:#f8fafc;"><td colspan="${COL_COUNT}" style="padding:8px 12px;text-align:center;color:#64748b;font-size:12px;border-bottom:1px solid #e2e8f0;font-family:${SANS};">
+        Showing first ${displayedNodes.length} of ${gnodes.length} nodes (⚡ ${remaining} more nodes hidden for performance. View full list in Resource Management).
+      </td></tr>`;
+    }
     html += `</tbody></table></div></div>`;
   });
 
@@ -1158,9 +1170,13 @@ function displayAccessInfoGui(data, infraId) {
     html += `<p style="color:#aaa;">No access information available.</p>`;
   }
 
+  const totalAccessNodes = groups.reduce((acc, g) => acc + (g.NodeAccessInfo ? g.NodeAccessInfo.length : 0), 0);
+  const MAX_ACCESS_NODES_PER_GROUP = totalAccessNodes > 500 ? 5 : (totalAccessNodes > 100 ? 10 : 50);
+
   groups.forEach(group => {
     const gid = group.NodeGroupId || 'default';
     const nodeList = group.NodeAccessInfo || [];
+    const displayedNodeList = nodeList.slice(0, MAX_ACCESS_NODES_PER_GROUP);
     html += `
       <div style="background:#0d1420;border:1px solid #2a3a50;border-radius:6px;margin-bottom:12px;overflow:hidden;">
         <div style="background:#1a3050;padding:8px 12px;font-weight:bold;color:#61dafb;">
@@ -1176,7 +1192,7 @@ function displayAccessInfoGui(data, infraId) {
             <th style="padding:5px 10px;text-align:left;border-bottom:1px solid #2a3a50;">SSH Command (click to copy)</th>
           </tr></thead>
           <tbody>`;
-    nodeList.forEach((nd, i) => {
+    displayedNodeList.forEach((nd, i) => {
       const bg = i % 2 === 0 ? '#0d1b2a' : '#0a1520';
       const user = nd.nodeUserName || 'cb-user'; // platform default when the key carries no account
       const port = nd.sshPort || 22;
@@ -1205,6 +1221,12 @@ function displayAccessInfoGui(data, infraId) {
           </td>
         </tr>`;
     });
+    if (nodeList.length > displayedNodeList.length) {
+      const remaining = nodeList.length - displayedNodeList.length;
+      html += `<tr style="background:#1a2535;"><td colspan="6" style="padding:6px 10px;text-align:center;color:#9ab;font-size:0.85em;">
+        Showing first ${displayedNodeList.length} of ${nodeList.length} nodes (⚡ ${remaining} more nodes hidden for performance).
+      </td></tr>`;
+    }
     html += `</tbody></table></div>`;
   });
   html += `</div>`;
@@ -1410,7 +1432,7 @@ function handleInfraWithoutNodes(infraItem) {
 // ---------------------------------------------------------------------------
 const ACTIVITY_MAX = 6;                 // cards kept on screen
 const ACTIVITY_MCP_LIFETIME_MS = 20000; // MCP event card auto-expire
-const ACTIVITY_GUI_DONE_MS = 5000;      // GUI card lingers after it completes
+const ACTIVITY_GUI_DONE_MS = 2500;      // GUI card lingers after it completes
 const mcpBannerSeen = new Set();        // startTime+url, so an MCP request is shown once
 const guiActivityCards = new window.Map(); // taskId -> live card
 
@@ -1428,6 +1450,21 @@ function activityFeedContainer() {
     'pointer-events:none', 'font-family:system-ui,-apple-system,sans-serif',
   ].join(';');
   document.body.appendChild(el);
+
+  if (!document.getElementById('af-keyframes')) {
+    const style = document.createElement('style');
+    style.id = 'af-keyframes';
+    style.textContent = `
+      @keyframes af-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes af-shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(200%); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
   return el;
 }
 
@@ -1448,24 +1485,33 @@ function activityCardAdd(opts) {
     : (opts.method ? (ACTIVITY_METHOD_COLOR[opts.method] || src.badge) : src.badge);
   const card = document.createElement('div');
   card.style.cssText = [
+    'position:relative', 'overflow:hidden',
     'background:rgba(13,27,42,.94)', 'border:1px solid ' + (ok ? '#2a5c8a' : '#8a2a2a'),
     'border-left:3px solid ' + accent,
-    'border-radius:7px', 'padding:7px 9px', 'color:#e8eef6', 'font-size:11px',
+    'border-radius:7px', 'padding:7px 9px 9px 9px', 'color:#e8eef6', 'font-size:11px',
     'box-shadow:0 3px 10px rgba(0,0,0,.4)', 'opacity:0',
     'transition:opacity .25s ease, transform .25s ease', 'transform:translateX(12px)',
   ].join(';');
   const statusColor = opts.live ? '#61dafb' : (ok ? '#7fd6a0' : '#ff9b9b');
+  const spinnerHtml = opts.live
+    ? `<span class="af-spinner" style="display:inline-block;width:7px;height:7px;border:1.5px solid ${statusColor};border-top-color:transparent;border-radius:50%;animation:af-spin .7s linear infinite;margin-right:4px;"></span>`
+    : '';
+  const progressBarHtml = opts.live
+    ? `<div class="af-progress-bar" style="position:absolute;bottom:0;left:0;width:100%;height:2px;overflow:hidden;background:rgba(255,255,255,0.06);"><div style="width:50%;height:100%;background:linear-gradient(90deg, transparent, ${accent}, transparent);animation:af-shimmer 1.5s infinite ease-in-out;"></div></div>`
+    : '';
+
   card.innerHTML =
     '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
       '<span style="background:' + src.badge + ';color:#0d1b2a;font-weight:700;border-radius:4px;' +
       'padding:1px 6px;font-size:10px;letter-spacing:.04em;">' + src.tag + '</span>' +
       (opts.method ? '<span style="color:' + accent + ';font-weight:600;">' +
         window.escapeHtml(opts.method) + '</span>' : '') +
-      '<span class="af-status" style="margin-left:auto;color:' + statusColor + ';">' +
-      window.escapeHtml(opts.status || '') + '</span>' +
+      '<span class="af-status" style="margin-left:auto;display:inline-flex;align-items:center;color:' + statusColor + ';font-size:10px;">' +
+      spinnerHtml + '<span>' + window.escapeHtml(opts.status || '') + '</span></span>' +
     '</div>' +
     '<div style="color:#c3cfe2;word-break:break-all;line-height:1.35;">' +
-      window.escapeHtml(opts.text || '') + '</div>';
+      window.escapeHtml(opts.text || '') + '</div>' +
+    progressBarHtml;
   box.appendChild(card);
   requestAnimationFrame(() => { card.style.opacity = '1'; card.style.transform = 'translateX(0)'; });
   while (box.children.length > ACTIVITY_MAX) box.removeChild(box.firstChild);
@@ -1495,10 +1541,8 @@ function guiMethodFromLabel(label) {
 // The card is tagged with its taskId so both the direct end path and the
 // reconcile safety net can find and settle it.
 function guiActivityStart(taskId, label) {
-  // No 'running' text: a visible card already means in-progress. Only errors are
-  // labelled (in settleGuiCard); success just fades out.
   const card = activityCardAdd({
-    source: 'gui', method: guiMethodFromLabel(label), text: label, status: '', live: true,
+    source: 'gui', method: guiMethodFromLabel(label), text: label, status: 'in progress', live: true,
   });
   card.dataset.taskId = taskId;
   card.dataset.live = '1';
@@ -1509,11 +1553,21 @@ function guiActivityStart(taskId, label) {
 function settleGuiCard(card, ok) {
   if (!card || card.dataset.live !== '1') return;
   card.dataset.live = '0';
-  // Success just fades out (keeping its method colour); only errors are labelled.
+  const bar = card.querySelector('.af-progress-bar');
+  if (bar) bar.remove();
+  const st = card.querySelector('.af-status');
   if (!ok) {
-    const st = card.querySelector('.af-status');
-    if (st) { st.textContent = 'error'; st.style.color = '#ff9b9b'; }
+    if (st) {
+      st.innerHTML = '<span style="margin-right:4px;">✕</span><span>error</span>';
+      st.style.color = '#ff9b9b';
+    }
     card.style.borderLeftColor = '#ff6b6b';
+  } else {
+    if (st) {
+      st.innerHTML = '<span style="margin-right:4px;">✓</span><span>done</span>';
+      st.style.color = '#7fd6a0';
+    }
+    card.style.borderLeftColor = '#7fd6a0';
   }
   activityCardExpire(card, ACTIVITY_GUI_DONE_MS);
 }

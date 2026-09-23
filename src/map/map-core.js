@@ -1417,6 +1417,7 @@ function showInfraContextMenu(pixel, infraInfo) {
 
 // Initialize an object to keep track of the active spinner tasks
 let spinnerStack = {};
+window.spinnerStack = spinnerStack;
 // A counter to generate unique IDs for spinner tasks
 let currentSpinnerId = 0;
 
@@ -1437,12 +1438,13 @@ function addSpinnerTask(functionName) {
 
 // Remove a task: mark its activity card done so it settles and fades out.
 // guiActivityEnd is idempotent, so this is safe to call more than once per task.
-function removeSpinnerTask(taskId) {
+function removeSpinnerTask(taskId, ok = true) {
   delete spinnerStack[taskId];
-  guiActivityEnd(taskId, true);
+  guiActivityEnd(taskId, ok);
 }
 window.addSpinnerTask = addSpinnerTask;
 window.removeSpinnerTask = removeSpinnerTask;
+window.spinnerStack = spinnerStack;
 
 // Display Icon for Cloud locations
 const csvPath =
@@ -3394,14 +3396,14 @@ function drawObjects(event) {
       // Create deep copy to avoid modifying original array (convexHull sorts input)
       const pointsCopy = cspPointsCircle.map(point => [point[0], point[1]]);
       
-      // Debug: log points before convex hull
-      console.log("Original points:", cspPointsCircle);
-      console.log("Points copy:", pointsCopy);
+      // Debug: log points before convex hull (controlled via DEBUG_CONFIG)
+      debugLog.mapOp("Original points:", cspPointsCircle);
+      debugLog.mapOp("Points copy:", pointsCopy);
       
       const hullPoints = convexHull(pointsCopy);
       
-      // Debug: log hull result
-      console.log("Hull points:", hullPoints);
+      // Debug: log hull result (controlled via DEBUG_CONFIG)
+      debugLog.mapOp("Hull points:", hullPoints);
       
       if (hullPoints.length >= 3) {
         // Ensure the polygon is closed by adding the first point at the end

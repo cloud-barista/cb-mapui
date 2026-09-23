@@ -15,6 +15,16 @@ limitations under the License.
 // override (apiBaseUrl); fall back to the direct host:port only when it is not
 // set. Using the raw host:port breaks when the browser reaches mapui through a
 // gateway and the direct TB port (1323) is not exposed (ERR_CONNECTION_REFUSED).
+// Debug logging configuration for Dashboard
+// Default is false to suppress heavy periodic store and chart logging in production.
+// To enable debug logs in browser console: window.DEBUG_DASHBOARD = true;
+const isDebugEnabled = () => Boolean((typeof window !== 'undefined' && window.DEBUG_DASHBOARD) || (typeof window !== 'undefined' && window.parent && window.parent.DEBUG_DASHBOARD));
+const debugLog = (...args) => {
+  if (isDebugEnabled()) {
+    console.log(...args);
+  }
+};
+
 function tbApiBase() {
   const c = (window.parent && window.parent.getConfig && window.parent.getConfig()) || {};
   return c.apiBaseUrl || `http://${c.hostname || 'localhost'}:${c.port || '1323'}/tumblebug`;
@@ -322,7 +332,7 @@ function refreshResourceData(resourceType, additionalParams) {
         break;
         
       default:
-        console.log(`No refresh function defined for ${resourceType}`);
+        debugLog(`No refresh function defined for ${resourceType}`);
     }
   } catch (error) {
     console.error(`Error refreshing ${resourceType} data:`, error);
@@ -402,7 +412,7 @@ async function deleteVpn(infraId, vpnId) {
       timeout: 60000
     });
 
-    console.log(`VPN ${vpnId} deleted successfully from Infra ${infraId}`);
+    debugLog(`VPN ${vpnId} deleted successfully from Infra ${infraId}`);
     showSuccessMessage(`VPN ${vpnId} deleted successfully`);
     
     // Refresh VPN data
@@ -585,7 +595,7 @@ let performanceMetrics = {
 function destroyAllCharts() {
   Object.keys(charts).forEach(chartKey => {
     if (charts[chartKey] && typeof charts[chartKey].destroy === 'function') {
-      console.log(`Destroying chart: ${chartKey}`);
+      debugLog(`Destroying chart: ${chartKey}`);
       charts[chartKey].destroy();
       charts[chartKey] = null;
     }
@@ -600,7 +610,7 @@ function performPerformanceCleanup() {
   
   // Run cleanup every 5 minutes
   if (timeSinceLastCleanup > 300000) {
-    console.log('[Performance] Running periodic cleanup...');
+    debugLog('[Performance] Running periodic cleanup...');
     
     // Clear any dangling timers
     clearDanglingTimers();
@@ -615,7 +625,7 @@ function performPerformanceCleanup() {
     performanceMetrics.domUpdateCount = 0;
     performanceMetrics.lastCleanupTime = now;
     
-    console.log('[Performance] Cleanup completed');
+    debugLog('[Performance] Cleanup completed');
   }
 }
 
@@ -639,13 +649,13 @@ function startPerformanceMonitoring() {
   // Set up periodic cleanup
   if (!performanceCleanupTimer) {
     performanceCleanupTimer = setInterval(performPerformanceCleanup, 60000); // Check every minute
-    console.log('[Performance] Monitoring started');
+    debugLog('[Performance] Monitoring started');
   }
 }
 
 // Initialize dashboard when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
-  console.log('Dashboard initializing...');
+  debugLog('Dashboard initializing...');
   
   // Load settings from localStorage
   loadSettings();
@@ -658,16 +668,16 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Subscribe to central data updates from parent/main window
   if (window.parent && window.parent.subscribeToDataUpdates) {
-    console.log('Subscribing to central data updates...');
+    debugLog('Subscribing to central data updates...');
     window.parent.subscribeToDataUpdates(function(receivedData) {
       // Skip overwriting local data during mutation cooldown
       // (prevents stale server data from undoing local deletions/changes)
       if (isMutationCooldownActive()) {
-        console.log('[DataSync] Skipping subscription update during mutation cooldown');
+        debugLog('[DataSync] Skipping subscription update during mutation cooldown');
         return;
       }
 
-      console.log('Received data update from central store');
+      debugLog('Received data update from central store');
       
       // Store centralData globally
       centralData = receivedData;
@@ -704,7 +714,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Check if data is already available
     if (window.parent.cloudBaristaCentralData) {
-      console.log('Using existing central data...');
+      debugLog('Using existing central data...');
       const centralData = window.parent.cloudBaristaCentralData;
       infraData = centralData.infraData || [];
       nodeData = centralData.nodeData || [];
@@ -727,11 +737,11 @@ document.addEventListener('DOMContentLoaded', function() {
       updateResourceCounts();
     } else {
       // No central data available yet
-      console.log('Central data not available, waiting for data from Map...');
+      debugLog('Central data not available, waiting for data from Map...');
     }
   } else {
     // Fallback: traditional loading if not in iframe
-    console.log('Not in iframe context, using traditional data loading...');
+    debugLog('Not in iframe context, using traditional data loading...');
     refreshDashboard();
     startAutoRefresh();
   }
@@ -1013,18 +1023,18 @@ function initializeCharts() {
 
 // Main refresh function - now uses shared data from index.js
 async function refreshDashboard() {
-  console.log('Refreshing dashboard using shared data...');
+  debugLog('Refreshing dashboard using shared data...');
   showRefreshIndicator(true);
   
   try {
     // Trigger data update from parent window (Map)
     if (window.parent && typeof window.parent.getInfra === 'function') {
-      console.log('Requesting data update from Map...');
+      debugLog('Requesting data update from Map...');
       window.parent.getInfra();
       
       // Also trigger K8s data load
       if (typeof window.parent.loadK8sClusterData === 'function') {
-        console.log('Requesting K8s data update from Map...');
+        debugLog('Requesting K8s data update from Map...');
         window.parent.loadK8sClusterData();
       }
       
@@ -1072,7 +1082,7 @@ async function refreshDashboard() {
       // Update UI controls
       updateShowAllButton();
       
-      console.log('Dashboard refreshed with shared data');
+      debugLog('Dashboard refreshed with shared data');
     } else {
       console.warn('No shared data available from parent window');
     }
@@ -1169,7 +1179,7 @@ async function loadInfraData() {
       nodeData = [];
     }
 
-    console.log(`Loaded ${infraData.length} Infras with ${nodeData.length} Nodes`);
+    debugLog(`Loaded ${infraData.length} Infras with ${nodeData.length} Nodes`);
   } catch (error) {
     console.error('Error loading Infra data:', error);
     throw error;
@@ -1211,7 +1221,7 @@ async function loadResourceOverview() {
         resourceData[resourceType] = [];
       }
       
-      console.log(`Loaded ${resourceType}:`, resourceData[resourceType]);
+      debugLog(`Loaded ${resourceType}:`, resourceData[resourceType]);
     } catch (error) {
       console.error(`Error loading ${resourceType}:`, error);
       resourceData[resourceType] = [];
@@ -1387,28 +1397,28 @@ function updateResourceCounts() {
     let centralData = {};
     if (window.parent && window.parent.cloudBaristaCentralData) {
       centralData = window.parent.cloudBaristaCentralData;
-      console.log('Central data available:', centralData);
+      debugLog('Central data available:', centralData);
     } else {
-      console.log('Central data not available');
+      debugLog('Central data not available');
     }
 
     // Update vNet count
     const vNetCount = centralData.vNet ? centralData.vNet.length : 0;
     const vNetElement = document.getElementById('vNetCount');
     if (vNetElement) vNetElement.textContent = vNetCount;
-    console.log('vNet count:', vNetCount, 'Data:', centralData.vNet);
+    debugLog('vNet count:', vNetCount, 'Data:', centralData.vNet);
 
     // Update Security Group count
     const securityGroupCount = centralData.securityGroup ? centralData.securityGroup.length : 0;
     const securityGroupElement = document.getElementById('securityGroupCount');
     if (securityGroupElement) securityGroupElement.textContent = securityGroupCount;
-    console.log('Security Group count:', securityGroupCount, 'Data:', centralData.securityGroup);
+    debugLog('Security Group count:', securityGroupCount, 'Data:', centralData.securityGroup);
 
     // Update SSH Key count
     const sshKeyCount = centralData.sshKey ? centralData.sshKey.length : 0;
     const sshKeyElement = document.getElementById('sshKeyCount');
     if (sshKeyElement) sshKeyElement.textContent = sshKeyCount;
-    console.log('SSH Key count:', sshKeyCount, 'Data:', centralData.sshKey);
+    debugLog('SSH Key count:', sshKeyCount, 'Data:', centralData.sshKey);
     
     // Update K8s Cluster count with API status indicator
     const k8sClusterCount = centralData.k8sCluster ? centralData.k8sCluster.length : 0;
@@ -1479,7 +1489,7 @@ function updateResourceCounts() {
     const sqlDbElement = document.getElementById('sqlDbCount');
     if (sqlDbElement) sqlDbElement.textContent = sqlDbCount;
 
-    console.log('Resource counts updated:', {
+    debugLog('Resource counts updated:', {
       vNet: vNetCount,
       securityGroup: securityGroupCount,
       sshKey: sshKeyCount,
@@ -1502,7 +1512,7 @@ function updateCharts() {
   performanceMetrics.chartUpdateCount++;
   
   try {
-    console.log(`Updating charts with current data... (update #${performanceMetrics.chartUpdateCount})`);
+    debugLog(`Updating charts with current data... (update #${performanceMetrics.chartUpdateCount})`);
     
     // Ensure charts exist before updating
     if (!charts.combinedStatus || !charts.providerRegion || !charts.k8sClusterStatus) {
@@ -1519,7 +1529,7 @@ function updateCharts() {
     // Update K8s Charts
     updateK8sCharts();
     
-    console.log('Charts updated successfully');
+    debugLog('Charts updated successfully');
     
   } catch (error) {
     console.error('Error updating charts:', error);
@@ -1710,43 +1720,43 @@ function updateProviderRegionChart() {
   
   // Collect K8s Node data by provider and region
   if (hasK8sData) {
-    console.log('Processing K8s data for Provider & Region chart:', k8sData);
+    debugLog('Processing K8s data for Provider & Region chart:', k8sData);
     k8sData.forEach(cluster => {
       let provider = null;
       let region = null;
       
-      console.log('Processing K8s cluster:', cluster.id, 'Connection:', cluster.connectionName);
-      console.log('Full cluster object:', cluster);
+      debugLog('Processing K8s cluster:', cluster.id, 'Connection:', cluster.connectionName);
+      debugLog('Full cluster object:', cluster);
       
       // Extract provider information from cluster
       if (cluster.connectionConfig && cluster.connectionConfig.providerName) {
         provider = cluster.connectionConfig.providerName.toLowerCase(); // Normalize to lowercase
-        console.log('Provider from connectionConfig.providerName:', provider);
+        debugLog('Provider from connectionConfig.providerName:', provider);
       } else if (cluster.location && cluster.location.cloudType) {
         provider = cluster.location.cloudType.toLowerCase(); // Normalize to lowercase
-        console.log('Provider from location.cloudType:', provider);
+        debugLog('Provider from location.cloudType:', provider);
       } else if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0 && cluster.k8sNodeGroupList[0].connectionConfig && cluster.k8sNodeGroupList[0].connectionConfig.providerName) {
         provider = cluster.k8sNodeGroupList[0].connectionConfig.providerName.toLowerCase(); // Normalize to lowercase
-        console.log('Provider from k8sNodeGroupList[0].connectionConfig.providerName:', provider);
+        debugLog('Provider from k8sNodeGroupList[0].connectionConfig.providerName:', provider);
       }
       
       // Extract region information from cluster
       if (cluster.connectionConfig && cluster.connectionConfig.regionDetail && cluster.connectionConfig.regionDetail.regionId) {
         region = cluster.connectionConfig.regionDetail.regionId;
-        console.log('Region from connectionConfig.regionDetail.regionId:', region);
+        debugLog('Region from connectionConfig.regionDetail.regionId:', region);
       } else if (cluster.region && cluster.region.region) {
         region = cluster.region.region;
-        console.log('Region from cluster.region.region:', region);
+        debugLog('Region from cluster.region.region:', region);
       } else if (cluster.location && cluster.location.region) {
         region = cluster.location.region;
-        console.log('Region from cluster.location.region:', region);
+        debugLog('Region from cluster.location.region:', region);
       }
       
-      console.log('Final extracted - Provider:', provider, 'Region:', region);
+      debugLog('Final extracted - Provider:', provider, 'Region:', region);
       
       // Skip clusters without proper provider/region info
       if (!provider || !region) {
-        console.log('Skipping cluster due to missing provider or region info');
+        debugLog('Skipping cluster due to missing provider or region info');
         return;
       }
       
@@ -1757,36 +1767,36 @@ function updateProviderRegionChart() {
       
       // Count nodes from all node groups in this cluster
       if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0) {
-        console.log('Processing node groups:', cluster.k8sNodeGroupList);
+        debugLog('Processing node groups:', cluster.k8sNodeGroupList);
         cluster.k8sNodeGroupList.forEach(nodeGroup => {
-          console.log('Processing NodeGroup:', nodeGroup.name || nodeGroup.id);
-          console.log('NodeGroup data:', nodeGroup);
+          debugLog('Processing NodeGroup:', nodeGroup.name || nodeGroup.id);
+          debugLog('NodeGroup data:', nodeGroup);
           
           let nodeCount = 0;
           
           // Use only actual k8sNodes array length (real existing nodes)
           if (nodeGroup.k8sNodes && Array.isArray(nodeGroup.k8sNodes)) {
             nodeCount = nodeGroup.k8sNodes.length;
-            console.log('NodeCount from k8sNodes.length (actual nodes):', nodeCount);
+            debugLog('NodeCount from k8sNodes.length (actual nodes):', nodeCount);
           } else {
-            console.log('No k8sNodes array found, nodeCount = 0');
+            debugLog('No k8sNodes array found, nodeCount = 0');
           }
           
-          console.log('Final NodeCount for', nodeGroup.name || nodeGroup.id, ':', nodeCount);
+          debugLog('Final NodeCount for', nodeGroup.name || nodeGroup.id, ':', nodeCount);
           
           if (nodeCount > 0) {
             // Add nodes to provider/region count
             providerRegionData[provider][region] = (providerRegionData[provider][region] || 0) + nodeCount;
-            console.log(`Added ${nodeCount} nodes to ${provider}/${region}. Total now:`, providerRegionData[provider][region]);
+            debugLog(`Added ${nodeCount} nodes to ${provider}/${region}. Total now:`, providerRegionData[provider][region]);
           } else {
-            console.log('NodeCount is 0, not adding to chart data');
+            debugLog('NodeCount is 0, not adding to chart data');
           }
         });
       } else {
-        console.log('No node groups found in cluster');
+        debugLog('No node groups found in cluster');
       }
     });
-    console.log('Final providerRegionData after K8s processing:', providerRegionData);
+    debugLog('Final providerRegionData after K8s processing:', providerRegionData);
   }
   
   // Process data for stacked bar chart
@@ -1862,7 +1872,7 @@ function categorizeStatus(status) {
 
 // Update K8s Charts
 function updateK8sCharts() {
-  console.log('=== K8s Chart Update Started ===');
+  debugLog('=== K8s Chart Update Started ===');
   
   try {
     // Check if chart exists
@@ -1875,12 +1885,12 @@ function updateK8sCharts() {
     let k8sData = [];
     if (window.parent && window.parent.cloudBaristaCentralData) {
       k8sData = window.parent.cloudBaristaCentralData.k8sCluster || [];
-      console.log('K8s Chart: Central data available, k8sCluster data:', k8sData);
+      debugLog('K8s Chart: Central data available, k8sCluster data:', k8sData);
     } else {
-      console.log('K8s Chart: No central data available');
+      debugLog('K8s Chart: No central data available');
     }
 
-    console.log('K8s Chart Update - Data length:', k8sData.length);
+    debugLog('K8s Chart Update - Data length:', k8sData.length);
 
     // Initialize status counts
     const clusterStatusCounts = {
@@ -1915,7 +1925,7 @@ function updateK8sCharts() {
 
     // Process K8s cluster data
     k8sData.forEach(cluster => {
-      console.log('Processing cluster:', cluster.id, 'status:', cluster.status);
+      debugLog('Processing cluster:', cluster.id, 'status:', cluster.status);
       
       // Count clusters by status - normalize to match our chart labels
       let clusterStatus = cluster.status || 'Unknown';
@@ -1924,7 +1934,7 @@ function updateK8sCharts() {
         clusterStatus = clusterStatus.charAt(0).toUpperCase() + clusterStatus.slice(1).toLowerCase();
       }
       
-      console.log('Normalized cluster status:', clusterStatus);
+      debugLog('Normalized cluster status:', clusterStatus);
       
       if (clusterStatusCounts.hasOwnProperty(clusterStatus)) {
         clusterStatusCounts[clusterStatus]++;
@@ -1935,7 +1945,7 @@ function updateK8sCharts() {
       // Process node groups
       if (cluster.k8sNodeGroupList && cluster.k8sNodeGroupList.length > 0) {
         cluster.k8sNodeGroupList.forEach(nodeGroup => {
-          console.log('Processing nodeGroup:', nodeGroup.name || nodeGroup.id, 'status:', nodeGroup.status);
+          debugLog('Processing nodeGroup:', nodeGroup.name || nodeGroup.id, 'status:', nodeGroup.status);
           
           // Count node groups by status (use cluster status if nodeGroup status not available)
           let nodeGroupStatus = nodeGroup.status || cluster.status || 'Unknown';
@@ -1944,7 +1954,7 @@ function updateK8sCharts() {
             nodeGroupStatus = nodeGroupStatus.charAt(0).toUpperCase() + nodeGroupStatus.slice(1).toLowerCase();
           }
           
-          console.log('Normalized nodeGroup status:', nodeGroupStatus);
+          debugLog('Normalized nodeGroup status:', nodeGroupStatus);
           
           if (nodeGroupStatusCounts.hasOwnProperty(nodeGroupStatus)) {
             nodeGroupStatusCounts[nodeGroupStatus]++;
@@ -1958,7 +1968,7 @@ function updateK8sCharts() {
             nodeCount = nodeGroup.k8sNodes.length;
           }
           
-          console.log('NodeGroup node count (actual nodes):', nodeCount);
+          debugLog('NodeGroup node count (actual nodes):', nodeCount);
           
           // Add nodes with same status as their node group
           if (nodeStatusCounts.hasOwnProperty(nodeGroupStatus)) {
@@ -1981,7 +1991,7 @@ function updateK8sCharts() {
     const hasNodeGroupData = nodeGroupDataArray.some(count => count > 0);
     const hasNodeData = nodeDataArray.some(count => count > 0);
     
-    console.log('K8s Chart Data:', {
+    debugLog('K8s Chart Data:', {
       clusters: clusterDataArray,
       nodeGroups: nodeGroupDataArray,
       nodes: nodeDataArray,
@@ -2036,7 +2046,7 @@ function updateK8sCharts() {
     }
     
     charts.k8sClusterStatus.update('none'); // Disable animation for better performance
-    console.log('K8s Chart: Updated successfully');
+    debugLog('K8s Chart: Updated successfully');
 
   } catch (error) {
     console.error('Error updating K8s charts:', error);
@@ -2047,7 +2057,7 @@ function updateK8sCharts() {
       charts.k8sClusterStatus.data.datasets[1].data = [0];
       charts.k8sClusterStatus.data.datasets[2].data = [0];
       charts.k8sClusterStatus.update('none');
-      console.log('K8s Chart: Fallback "No Data" applied');
+      debugLog('K8s Chart: Fallback "No Data" applied');
     }
   }
 }
@@ -2056,7 +2066,7 @@ function updateK8sCharts() {
 function updateInfraTable() {
   // Check if data has changed before updating
   if (!hasDataChanged('infraTable', infraData)) {
-    console.log('[Performance] Infra table: Skipping update - no changes detected');
+    debugLog('[Performance] Infra table: Skipping update - no changes detected');
     return;
   }
 
@@ -2156,32 +2166,32 @@ function updateInfraTable() {
 }
 function selectInfra(infraId) {
   selectedInfraId = infraId;
-  console.log(`Selected Infra: ${infraId}`);
+  debugLog(`Selected Infra: ${infraId}`);
   
   // Debug: Check if sync function exists
-  console.log(`[DEBUG] In iframe, trying to access parent window`);
+  debugLog(`[DEBUG] In iframe, trying to access parent window`);
   
   try {
     // Try to access parent window function
     if (window.parent && window.parent !== window) {
-      console.log(`[DEBUG] Parent window exists, checking for sync function`);
+      debugLog(`[DEBUG] Parent window exists, checking for sync function`);
       if (window.parent.syncInfraSelectionFromDashboard && typeof window.parent.syncInfraSelectionFromDashboard === 'function') {
-        console.log(`[DEBUG] Calling parent sync function with:`, infraId);
+        debugLog(`[DEBUG] Calling parent sync function with:`, infraId);
         window.parent.syncInfraSelectionFromDashboard(infraId);
       } else {
-        console.log(`[DEBUG] Parent sync function not found`);
+        debugLog(`[DEBUG] Parent sync function not found`);
       }
     } else {
-      console.log(`[DEBUG] No parent window found, trying direct access`);
+      debugLog(`[DEBUG] No parent window found, trying direct access`);
       if (window.syncInfraSelectionFromDashboard && typeof window.syncInfraSelectionFromDashboard === 'function') {
-        console.log(`[DEBUG] Calling direct sync function with:`, infraId);
+        debugLog(`[DEBUG] Calling direct sync function with:`, infraId);
         window.syncInfraSelectionFromDashboard(infraId);
       } else {
-        console.log(`[DEBUG] Direct sync function not available`);
+        debugLog(`[DEBUG] Direct sync function not available`);
       }
     }
   } catch (error) {
-    console.log(`[DEBUG] Error during sync:`, error);
+    debugLog(`[DEBUG] Error during sync:`, error);
   }
   
   // Update Infra table highlighting
@@ -2213,7 +2223,7 @@ function selectInfra(infraId) {
 // Show all NODEs (clear Infra selection)
 function showAllNodes() {
   selectedInfraId = null;
-  console.log('Showing all Nodes, selectedInfraId set to:', selectedInfraId);
+  debugLog('Showing all Nodes, selectedInfraId set to:', selectedInfraId);
   
   // Update Infra table highlighting
   updateInfraTable();
@@ -2244,10 +2254,10 @@ function showAllNodes() {
 // Update show all button visibility
 function updateShowAllButton() {
   const showAllBtn = document.getElementById('showAllBtn');
-  console.log('updateShowAllButton called, selectedInfraId:', selectedInfraId, 'showAllBtn:', showAllBtn);
+  debugLog('updateShowAllButton called, selectedInfraId:', selectedInfraId, 'showAllBtn:', showAllBtn);
   if (showAllBtn) {
     showAllBtn.style.display = selectedInfraId ? 'inline-block' : 'none';
-    console.log('Show All button display set to:', showAllBtn.style.display);
+    debugLog('Show All button display set to:', showAllBtn.style.display);
   }
 }
 
@@ -2262,7 +2272,7 @@ function updateNodeTable() {
   // Check if data has changed before updating
   const dataKey = selectedInfraId ? `node-table-${selectedInfraId}` : 'node-table-all';
   if (!hasDataChanged(dataKey, filteredNodes)) {
-    console.log(`[Performance] Node table (${dataKey}): Skipping update - no changes detected`);
+    debugLog(`[Performance] Node table (${dataKey}): Skipping update - no changes detected`);
     return;
   }
 
@@ -2621,7 +2631,7 @@ function refreshNodeList() {
 function startAutoRefresh() {
   // Don't start auto-refresh if using central data subscription
   if (window.parent && window.parent.subscribeToDataUpdates) {
-    console.log('Using central data subscription, skipping auto-refresh setup');
+    debugLog('Using central data subscription, skipping auto-refresh setup');
     return;
   }
   
@@ -2635,7 +2645,7 @@ function startAutoRefresh() {
     refreshDashboard();
   }, dashboardConfig.refreshInterval);
   
-  console.log(`Auto-refresh started with interval: ${dashboardConfig.refreshInterval}ms`);
+  debugLog(`Auto-refresh started with interval: ${dashboardConfig.refreshInterval}ms`);
 }
 
 // Show/hide refresh indicator — no-op: indicator UI removed
@@ -2770,7 +2780,7 @@ function updateVNetTable() {
   
   // Check if data has changed before updating
   if (!hasDataChanged('vNetTable', vNetData)) {
-    console.log('[Performance] VNet table: Skipping update - no changes detected');
+    debugLog('[Performance] VNet table: Skipping update - no changes detected');
     return;
   }
   
@@ -2935,7 +2945,7 @@ function updateSecurityGroupTable() {
   
   // Check if data has changed before updating
   if (!hasDataChanged('security-group-table', sgData)) {
-    console.log('[Performance] Security Group table: Skipping update - no changes detected');
+    debugLog('[Performance] Security Group table: Skipping update - no changes detected');
     return;
   }
   
@@ -2981,7 +2991,7 @@ function updateSshKeyTable() {
   
   // Check if data has changed before updating
   if (!hasDataChanged('ssh-key-table', sshKeyData)) {
-    console.log('[Performance] SSH Key table: Skipping update - no changes detected');
+    debugLog('[Performance] SSH Key table: Skipping update - no changes detected');
     return;
   }
   const tableBody = document.getElementById('sshKeyTableBody');
@@ -3026,12 +3036,12 @@ function updateK8sClusterTable() {
   }
   
   const k8sData = centralData.k8sCluster || [];
-  console.log('updateK8sClusterTable - K8s data:', k8sData);
-  console.log('updateK8sClusterTable - Central data structure:', centralData);
+  debugLog('updateK8sClusterTable - K8s data:', k8sData);
+  debugLog('updateK8sClusterTable - Central data structure:', centralData);
   
   // Check if data has changed before updating
   if (!hasDataChanged('k8s-cluster-table', k8sData)) {
-    console.log('[Performance] K8s Cluster table: Skipping update - no changes detected');
+    debugLog('[Performance] K8s Cluster table: Skipping update - no changes detected');
     return;
   }
   
@@ -3131,7 +3141,7 @@ function updateK8sClusterTable() {
 // Select K8s cluster and update node group table
 function selectK8sCluster(clusterId) {
   selectedK8sClusterId = clusterId;
-  console.log(`Selected K8s Cluster: ${clusterId}`);
+  debugLog(`Selected K8s Cluster: ${clusterId}`);
   
   // Update K8s cluster table highlighting
   updateK8sClusterTable();
@@ -3155,7 +3165,7 @@ function selectK8sCluster(clusterId) {
 // Show all node groups (clear cluster selection)
 function showAllNodeGroups() {
   selectedK8sClusterId = null;
-  console.log('Showing all node groups, selectedK8sClusterId set to:', selectedK8sClusterId);
+  debugLog('Showing all node groups, selectedK8sClusterId set to:', selectedK8sClusterId);
   
   // Update K8s cluster table highlighting
   updateK8sClusterTable();
@@ -3192,7 +3202,7 @@ function updateK8sNodeGroupTable() {
   }
   
   const k8sData = centralData.k8sCluster || [];
-  console.log('updateK8sNodeGroupTable - K8s data:', k8sData);
+  debugLog('updateK8sNodeGroupTable - K8s data:', k8sData);
   const tableBody = document.getElementById('k8sNodeGroupTableBody');
   if (!tableBody) return;
   
@@ -3202,11 +3212,11 @@ function updateK8sNodeGroupTable() {
   // Collect all node groups
   let allNodeGroups = [];
   k8sData.forEach(cluster => {
-    console.log('Processing cluster:', cluster.id, 'Full cluster object:', cluster);
+    debugLog('Processing cluster:', cluster.id, 'Full cluster object:', cluster);
     
     // Handle different possible node group field names - comprehensive check
     let nodeGroups = cluster.k8sNodeGroupList || cluster.nodeGroupList || cluster.nodeGroups || cluster.NodeGroupList || cluster.K8sNodeGroupList || [];
-    console.log('Found node groups:', nodeGroups, 'Field used:', 
+    debugLog('Found node groups:', nodeGroups, 'Field used:', 
       cluster.k8sNodeGroupList ? 'k8sNodeGroupList' :
       cluster.nodeGroupList ? 'nodeGroupList' :
       cluster.nodeGroups ? 'nodeGroups' :
@@ -3224,13 +3234,13 @@ function updateK8sNodeGroupTable() {
     }
   });
   
-  console.log('All node groups collected:', allNodeGroups);
+  debugLog('All node groups collected:', allNodeGroups);
   
   // Filter node groups based on selected cluster
   let filteredNodeGroups = allNodeGroups;
   if (selectedK8sClusterId) {
     filteredNodeGroups = allNodeGroups.filter(ng => ng.clusterId === selectedK8sClusterId);
-    console.log(`Filtered node groups for cluster ${selectedK8sClusterId}:`, filteredNodeGroups);
+    debugLog(`Filtered node groups for cluster ${selectedK8sClusterId}:`, filteredNodeGroups);
   }
   
   // Update node group count display
@@ -3366,7 +3376,7 @@ function updateConnectionTable() {
   // Skip update if data hasn't changed and recent update
   if (connectionTabCache.lastDataHash === dataHash && 
       (now - connectionTabCache.lastUpdateTime) < 2000) {
-    console.log('[Performance] Connection table: Skipping update - no changes detected');
+    debugLog('[Performance] Connection table: Skipping update - no changes detected');
     return;
   }
   
@@ -3624,7 +3634,7 @@ function createCspTabs(connectionData) {
   }
   
   const end = performance.now();
-  console.log(`createCspTabs completed in ${(end - start).toFixed(2)}ms`);
+  debugLog(`createCspTabs completed in ${(end - start).toFixed(2)}ms`);
 }
 
 // Clear Connection Tab Selection Function
@@ -3639,7 +3649,7 @@ function clearConnectionTabSelection() {
     pane.classList.remove('show', 'active');
   });
   
-  console.log('Connection tab selection cleared');
+  debugLog('Connection tab selection cleared');
 }
 
 function updateCustomImageTable() {
@@ -3800,7 +3810,7 @@ function updateVpnTable() {
   
   // Check if data has changed before updating
   if (!hasDataChanged('vpnTable', vpnData)) {
-    console.log('[Performance] VPN table: Skipping update - no changes detected');
+    debugLog('[Performance] VPN table: Skipping update - no changes detected');
     return;
   }
   
@@ -3837,7 +3847,7 @@ function updateVpnTable() {
 
 // Resource management functions
 function refreshResourceList(resourceType) {
-  console.log(`Refreshing ${resourceType} list...`);
+  debugLog(`Refreshing ${resourceType} list...`);
 
     // Special handling for VPN resources
   if (resourceType === 'vpn') {
@@ -3867,7 +3877,7 @@ function refreshResourceList(resourceType) {
 }
 
 function viewResourceDetails(resourceType, resourceId) {
-  console.log(`Viewing details for ${resourceType}: ${resourceId}`);
+  debugLog(`Viewing details for ${resourceType}: ${resourceId}`);
   
   let centralData = {};
   if (window.parent && window.parent.cloudBaristaCentralData) {
@@ -4095,7 +4105,7 @@ window.updateAllResourceTables = updateAllResourceTables;
 
 // Additional resource-specific functions
 function viewKeyMaterial(sshKeyId) {
-  console.log(`Viewing SSH key material for: ${sshKeyId}`);
+  debugLog(`Viewing SSH key material for: ${sshKeyId}`);
   
   let centralData = {};
   if (window.parent && window.parent.cloudBaristaCentralData) {
@@ -4132,7 +4142,7 @@ function viewKeyMaterial(sshKeyId) {
 }
 
 function controlK8sCluster(clusterId, action) {
-  console.log(`Performing ${action} on K8s cluster: ${clusterId}`);
+  debugLog(`Performing ${action} on K8s cluster: ${clusterId}`);
   
   if (action === 'upgrade') {
     Swal.fire({
@@ -4145,7 +4155,7 @@ function controlK8sCluster(clusterId, action) {
       confirmButtonText: 'Yes, upgrade it!'
     }).then((result) => {
       if (result.isConfirmed) {
-        console.log(`Upgrading K8s cluster: ${clusterId}`);
+        debugLog(`Upgrading K8s cluster: ${clusterId}`);
         // TODO: Implement actual upgrade API call
         Swal.fire('Upgrade Started!', 'K8s cluster upgrade has been initiated.', 'success');
       }
@@ -4154,7 +4164,7 @@ function controlK8sCluster(clusterId, action) {
 }
 
 function testConnection(configName) {
-  console.log(`Testing connection: ${configName}`);
+  debugLog(`Testing connection: ${configName}`);
   
   Swal.fire({
     title: 'Testing Connection...',
@@ -4176,7 +4186,7 @@ function testConnection(configName) {
 }
 
 function resizeDisk(diskId) {
-  console.log(`Resizing disk: ${diskId}`);
+  debugLog(`Resizing disk: ${diskId}`);
   
   Swal.fire({
     title: 'Resize Data Disk',
@@ -4202,7 +4212,7 @@ function resizeDisk(diskId) {
     }
   }).then((result) => {
     if (result.isConfirmed) {
-      console.log(`Resizing disk ${diskId} to ${result.value} GB`);
+      debugLog(`Resizing disk ${diskId} to ${result.value} GB`);
       // TODO: Implement actual resize API call
       Swal.fire('Resize Started!', `Disk ${diskId} resize to ${result.value} GB has been initiated.`, 'success');
     }
@@ -4299,7 +4309,7 @@ function toggleAutoScaling(clusterId, nodeGroupName, enable) {
     cancelButtonText: 'Cancel'
   }).then((result) => {
     if (result.isConfirmed) {
-      console.log(`${action} auto scaling for ${nodeGroupName} in cluster ${clusterId}`);
+      debugLog(`${action} auto scaling for ${nodeGroupName} in cluster ${clusterId}`);
       // TODO: Implement actual API call
       showSuccessMessage(`Auto scaling ${action}d for node group: ${nodeGroupName}`);
     }
@@ -4386,7 +4396,7 @@ function scaleNodeGroup(clusterId, nodeGroupName) {
     }
   }).then(async (result) => {
     if (result.isConfirmed) {
-      console.log(`Scaling node group ${nodeGroupName} in cluster ${clusterId}:`, result.value);
+      debugLog(`Scaling node group ${nodeGroupName} in cluster ${clusterId}:`, result.value);
       
       // Show loading indicator
       Swal.fire({
@@ -4429,7 +4439,7 @@ function scaleNodeGroup(clusterId, nodeGroupName) {
         }
         
         const responseData = await response.json();
-        console.log('Scale node group response:', responseData);
+        debugLog('Scale node group response:', responseData);
         
         // Close loading dialog and show success
         Swal.fire({
@@ -4498,7 +4508,7 @@ function deleteNodeGroup(nodeGroupId, clusterId = null) {
 }
 
 function refreshNodeGroupList() {
-  console.log('Refreshing node group list...');
+  debugLog('Refreshing node group list...');
   // Node groups are part of cluster data, so refresh clusters
   if (window.parent && typeof window.parent.getInfra === 'function') {
     window.parent.getInfra();
@@ -4532,7 +4542,7 @@ function openInfoLink(path) {
       }
     } catch (e) {
       // Cross-origin restrictions may prevent access, so we'll use a simpler fallback approach
-      console.log('Opening Info dashboard:', url);
+      debugLog('Opening Info dashboard:', url);
     }
   }, 2000);
 }
@@ -4625,7 +4635,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Cleanup function to run when page is being unloaded
 function performCleanup() {
-  console.log('[Performance] Performing final cleanup...');
+  debugLog('[Performance] Performing final cleanup...');
   
   // Clear all timers
   clearDanglingTimers();
@@ -4642,7 +4652,7 @@ function performCleanup() {
   nodeData = [];
   resourceData = {};
   
-  console.log('[Performance] Final cleanup completed');
+  debugLog('[Performance] Final cleanup completed');
 }
 
 // Add cleanup on page unload
@@ -4670,33 +4680,33 @@ window.deleteNodeGroup = deleteNodeGroup;
 
 // Debug functions for K8s troubleshooting
 window.debugK8sData = function() {
-  console.log('=== K8s Debug Information ===');
+  debugLog('=== K8s Debug Information ===');
   
   let centralData = {};
   if (window.parent && window.parent.cloudBaristaCentralData) {
     centralData = window.parent.cloudBaristaCentralData;
   }
   
-  console.log('Central Data K8s:', centralData.k8sCluster);
-  console.log('Resource Data K8s:', centralData.resourceData?.k8sCluster);
+  debugLog('Central Data K8s:', centralData.k8sCluster);
+  debugLog('Resource Data K8s:', centralData.resourceData?.k8sCluster);
   
   if (centralData.k8sCluster && centralData.k8sCluster.length > 0) {
     centralData.k8sCluster.forEach((cluster, index) => {
-      console.log(`Cluster ${index}:`, cluster);
-      console.log(`  - ID: ${cluster.id}`);
-      console.log(`  - Status: ${cluster.status}`);
-      console.log(`  - k8sNodeGroupList:`, cluster.k8sNodeGroupList);
-      console.log(`  - nodeGroupList:`, cluster.nodeGroupList);
-      console.log(`  - nodeGroups:`, cluster.nodeGroups);
-      console.log(`  - NodeGroupList:`, cluster.NodeGroupList);
-      console.log(`  - K8sNodeGroupList:`, cluster.K8sNodeGroupList);
+      debugLog(`Cluster ${index}:`, cluster);
+      debugLog(`  - ID: ${cluster.id}`);
+      debugLog(`  - Status: ${cluster.status}`);
+      debugLog(`  - k8sNodeGroupList:`, cluster.k8sNodeGroupList);
+      debugLog(`  - nodeGroupList:`, cluster.nodeGroupList);
+      debugLog(`  - nodeGroups:`, cluster.nodeGroups);
+      debugLog(`  - NodeGroupList:`, cluster.NodeGroupList);
+      debugLog(`  - K8sNodeGroupList:`, cluster.K8sNodeGroupList);
     });
   } else {
-    console.log('No K8s cluster data found');
+    debugLog('No K8s cluster data found');
   }
   
-  console.log('Selected K8s Cluster ID:', selectedK8sClusterId);
-  console.log('=== End K8s Debug ===');
+  debugLog('Selected K8s Cluster ID:', selectedK8sClusterId);
+  debugLog('=== End K8s Debug ===');
 };
 
 // ===============================
@@ -4716,7 +4726,7 @@ const DISABLE_CHANGE_DETECTION = false;
 function hasDataChanged(tableId, newData) {
   // Allow disabling change detection for debugging
   if (DISABLE_CHANGE_DETECTION) {
-    console.log(`[DataTables] Change detection disabled, always updating ${tableId}`);
+    debugLog(`[DataTables] Change detection disabled, always updating ${tableId}`);
     return true;
   }
   
@@ -4728,18 +4738,18 @@ function hasDataChanged(tableId, newData) {
     // Always update on first run
     if (oldDataString === undefined) {
       previousData[tableId] = newDataString;
-      console.log(`[DataTables] First run for ${tableId}, data length: ${newDataString.length}`);
+      debugLog(`[DataTables] First run for ${tableId}, data length: ${newDataString.length}`);
       return true;
     }
     
     // Simple string comparison
     if (oldDataString !== newDataString) {
-      console.log(`[DataTables] Data changed for ${tableId}, old length: ${oldDataString.length}, new length: ${newDataString.length}`);
+      debugLog(`[DataTables] Data changed for ${tableId}, old length: ${oldDataString.length}, new length: ${newDataString.length}`);
       previousData[tableId] = newDataString;
       return true;
     }
     
-    console.log(`[DataTables] No changes for ${tableId}, data length: ${newDataString.length}`);
+    debugLog(`[DataTables] No changes for ${tableId}, data length: ${newDataString.length}`);
     return false;
   } catch (error) {
     console.warn(`[DataTables] Error comparing data for ${tableId}:`, error);
@@ -4749,13 +4759,13 @@ function hasDataChanged(tableId, newData) {
 
 // Initialize DataTables for dashboard tables
 function initializeDataTables() {
-  console.log('[DataTables] Starting initialization...');
+  debugLog('[DataTables] Starting initialization...');
   
   // Clear any existing DataTable state from localStorage to prevent conflicts
   Object.keys(localStorage).forEach(key => {
     if (key.startsWith('DataTables_')) {
       localStorage.removeItem(key);
-      console.log(`[DataTables] Cleared localStorage key: ${key}`);
+      debugLog(`[DataTables] Cleared localStorage key: ${key}`);
     }
   });
 
@@ -5025,7 +5035,7 @@ function initializeDataTables() {
     if (tableElement && !dataTableInstances[tableConfig.id]) {
       // Skip tables that only have placeholder rows (colspan) or are empty
       if (!tableHasDataRows(tableConfig.id)) {
-        console.log(`[DataTables] Skipping ${tableConfig.id} (no data rows yet)`);
+        debugLog(`[DataTables] Skipping ${tableConfig.id} (no data rows yet)`);
         return;
       }
       try {
@@ -5045,7 +5055,7 @@ function initializeDataTables() {
           };
           
           dataTableInstances[tableConfig.id] = $(`#${tableConfig.id}`).DataTable(config);
-          console.log(`[DataTables] Initialized: ${tableConfig.id}`);
+          debugLog(`[DataTables] Initialized: ${tableConfig.id}`);
         }
       } catch (error) {
         console.warn(`[DataTables] Failed to initialize ${tableConfig.id}:`, error);

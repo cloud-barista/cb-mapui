@@ -114,24 +114,54 @@ function controlInfra(action) {
       if (res.data != null) {
         console.log(res.data);
         displayJsonData(res.data, typeInfo);
-        switch (action) {
-          case "refine":
-          case "suspend":
-          case "resume":
-          case "reboot":
-          case "terminate":
-          case "continue":
-          case "withdraw":
-          case "reconcile":
-          case "abort":
-            infoAlert(
-              JSON.stringify(res.data.message, null, 2).replace(/['",]+/g, "")
-            );
-            break;
-          default:
-            console.log(
-              `The action ${action} is not supported. Supported actions: refine, continue, withdraw, reconcile, abort, suspend, resume, reboot, terminate.`
-            );
+
+        const data = res.data;
+        const msg = (data && data.message) ? String(data.message) : '';
+
+        // Check for partial or full failures
+        if (data && data.failedNodeCount > 0) {
+          let failureDetailsHtml = '';
+          if (data.nodeResults && Array.isArray(data.nodeResults)) {
+            const failedResults = data.nodeResults.filter(r => !r.success);
+            if (failedResults.length > 0) {
+              const rows = failedResults.map(r => `
+                <tr style="border-bottom: 1px solid #444;">
+                  <td style="padding: 6px 10px; font-weight: bold; color: #ff6b6b; font-family: monospace;">${escapeHtml(r.nodeId || '')}</td>
+                  <td style="padding: 6px 10px; font-size: 11px;">${escapeHtml(r.providerName || '')}</td>
+                  <td style="padding: 6px 10px; font-size: 11px; color: #ffc107;">${escapeHtml(r.status || '')}</td>
+                  <td style="padding: 6px 10px; font-size: 11px; color: #ffa8a8; text-align: left;">${escapeHtml(r.error || r.message || 'Unknown error')}</td>
+                </tr>
+              `).join('');
+
+              failureDetailsHtml = `
+                <div style="margin-top: 15px; max-height: 250px; overflow-y: auto; text-align: left;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 12px; background: rgba(0,0,0,0.2);">
+                    <thead>
+                      <tr style="border-bottom: 2px solid #555; background: rgba(255,255,255,0.05);">
+                        <th style="padding: 6px 10px;">Node ID</th>
+                        <th style="padding: 6px 10px;">CSP</th>
+                        <th style="padding: 6px 10px;">Status</th>
+                        <th style="padding: 6px 10px;">Error Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                  </table>
+                </div>
+              `;
+            }
+          }
+
+          Swal.fire({
+            icon: 'warning',
+            title: `Action '${action}' Partially Completed`,
+            html: `<div style="font-size: 14px; margin-bottom: 10px;">${escapeHtml(msg)}</div>${failureDetailsHtml}`,
+            width: '650px',
+            showConfirmButton: true,
+            confirmButtonText: 'OK',
+            confirmButtonColor: '#ff9800'
+          });
+        } else {
+          successAlert(msg || `Action '${action}' completed successfully`);
         }
       }
     })
