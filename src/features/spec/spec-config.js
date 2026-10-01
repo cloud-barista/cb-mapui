@@ -214,1351 +214,67 @@ function getRecommendedSpec(idx, latitude, longitude) {
       return;
     }
 
-    // Spec selection popup
-    Swal.fire({
-      title: "Select a Spec from the Recommendation List",
-      width: 1200,
-      position: 'center',
-
-      // Spec selection popup HTML part with row selection instead of buttons
-      html: `
-  <div class="compact-datatable">
-    <div class="table-responsive">
-      <table id="specSelectionTable" class="display nowrap" style="width:100%">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>CSP</th>
-            <th>Region</th>
-            <th>SpecName</th>
-            <th>Arch</th>
-            <th>vCPU</th>
-            <th>Mem(Gi)</th>
-            <th>Cost($/h)</th>
-            <th>Accelerator</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${res.data.map((spec, index) => {
-        let costPerHour = spec.costPerHour < 0 || !spec.costPerHour
-          ? "unknown"
-          : `$${spec.costPerHour}`;
-
-
-        let acceleratorInfo;
-        if (spec.acceleratorModel && spec.acceleratorModel !== "undefined" && spec.acceleratorModel !== "") {
-          acceleratorInfo = `<span style="color:red;font-weight:bold">${spec.acceleratorModel} (C:${spec.acceleratorCount} ${spec.acceleratorMemoryGB})</span>`;
-        } else {
-          acceleratorInfo = "None";
-        }
-
-        return `
-              <tr id="spec-row-${index}" class="${index === 0 ? 'selected-spec' : ''}" data-index="${index}">
-                <td class="text-left">${index + 1}</td>
-                <td class="text-left">${spec.providerName.toUpperCase()}</td>
-                <td class="text-left">${spec.regionName}</td>
-                <td class="text-left">${spec.cspSpecName}</td>
-                <td>${spec.architecture}</td>
-                <td>${spec.vCPU}</td>
-                <td>${spec.memoryGiB}</td>
-                <td>${costPerHour}</td>
-                <td class="text-left">${acceleratorInfo}</td>
-              </tr>
-            `;
-      }).join('')}
-        </tbody>
-      </table>
-    </div>
-    <div id="specDetailsContainer" style="margin-top:15px;padding:8px;border:1px solid #ddd;border-radius:5px;height:280px;overflow-y:auto;display:flex;flex-direction:column;">
-      <h5 style="font-size: 0.85rem;margin-bottom:5px;flex-shrink:0;">Selected Spec Details</h5>
-      <div id="specDetailsContent" style="flex:1;overflow-y:auto;"></div>
-    </div>
-    <input type="hidden" id="selectedSpecIndex" value="0">
-  </div>
-  <style>
-    /* Apply compact styling to all DataTable elements */
-    .compact-datatable {
-      font-size: 0.8rem;
-    }
-    
-    /* Stronger highlight for selected row */
-    .selected-spec {
-      background-color: rgba(40, 167, 69, 0.35) !important;
-      border-left: 5px solid rgb(40, 167, 69) !important;
-      font-weight: bold;
-    }
-    table.dataTable tbody tr.selected-spec {
-      background-color: rgba(40, 167, 69, 0.35) !important;
-      border-left: 5px solid rgb(40, 167, 69) !important;
-    }
-    
-    /* Make rows clickable */
-    #specSelectionTable tbody tr {
-      cursor: pointer;
-    }
-    #specSelectionTable tbody tr:hover {
-      background-color: rgba(0, 123, 255, 0.08) !important;
-    }
-    
-    /* Reduce spacing in details section */
-    #specDetailsContent .row p {
-      margin-bottom: 0.2rem;
-    }
-  </style>
-`,
-      didOpen: () => {
-        // Set up row click event for the table
-        $('#specSelectionTable tbody').on('click', 'tr', function () {
-          const index = $(this).data('index');
-          selectSpecRow(index);
-        });
-
-        // Spec selection function
-        window.selectSpecRow = function (index) {
-          // Reset previous selection
-          document.querySelectorAll('#specSelectionTable tbody tr').forEach(row => {
-            row.classList.remove('selected-spec');
-          });
-
-          // Select new row
-          const selectedRow = document.getElementById(`spec-row-${index}`);
-          if (selectedRow) {
-            selectedRow.classList.add('selected-spec');
-          }
-
-          // Save selected index and update details
-          document.getElementById('selectedSpecIndex').value = index;
-          updateSpecDetails(index);
-        };
-
-        // Update spec details function
-        function updateSpecDetails(index) {
-          const spec = res.data[index];
-          let costPerHour = spec.costPerHour < 0 || !spec.costPerHour ? "unknown" : `$${spec.costPerHour}`;
-
-          // Basic spec information - styled to match image details
-          const specInfoHTML = `
-            <div style="margin:0; padding:0; text-align: left;">
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>CSP:</strong> ${spec.providerName.toUpperCase()}
-              </div>
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>Region:</strong> ${spec.regionName}
-              </div>
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>Spec Name:</strong> ${spec.cspSpecName}
-              </div>
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>Architecture:</strong> ${spec.architecture}
-              </div>
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>vCPU:</strong> ${spec.vCPU}
-              </div>
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>Memory:</strong> ${spec.memoryGiB} GiB
-              </div>
-              <div style="margin-bottom:3px; text-align: left;">
-                <strong>Cost:</strong> <span style="color: ${costPerHour === 'unknown' ? 'orange' : 'green'};">${costPerHour}/hour</span>
-              </div>
-              ${spec.acceleratorType === "gpu" ? `
-                <div style="margin-bottom:3px; text-align: left;">
-                  <strong>Accelerator:</strong> <span style="color: red; font-weight: bold;">✓ GPU (${spec.acceleratorModel})</span>
-                </div>
-                <div style="margin-bottom:3px; text-align: left;">
-                  <strong>GPU Count:</strong> ${spec.acceleratorCount}
-                </div>
-                <div style="margin-bottom:3px; text-align: left;">
-                  <strong>GPU Memory:</strong> ${spec.acceleratorMemoryGB} GB
-                </div>
-              ` : `
-                <div style="margin-bottom:3px; text-align: left;">
-                  <strong>Accelerator:</strong> <span style="color: gray;">None</span>
-                </div>
-              `}
-            </div>
-          `;
-
-          // Details table - styled to match image details
-          let detailsTableHTML = "";
-          if (spec.details && Array.isArray(spec.details) && spec.details.length > 0) {
-            detailsTableHTML = `
-              <div style="margin-top: 8px; text-align: left;">
-                <table style="width:100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;">
-                  <thead>
-                    <tr>
-                      <th style="width: 35%; padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Property</th>
-                      <th style="padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${spec.details.map(item =>
-                      `<tr>
-                        <td style="padding: 3px; border: 1px solid #ddd; text-align: left;"><strong>${item.key}</strong></td>
-                        <td style="padding: 3px; border: 1px solid #ddd; word-wrap: break-word; text-align: left;">${item.value}</td>
-                      </tr>`
-                    ).join('')}
-                  </tbody>
-                </table>
-              </div>
-            `;
-          }
-
-          const detailsHTML = specInfoHTML + detailsTableHTML;
-
-          document.getElementById('specDetailsContent').innerHTML = detailsHTML;
-        }
-
-        // Initialize DataTable
-        $('#specSelectionTable').DataTable({
-          "paging": true,
-          "searching": true,
-          "ordering": true,
-          "info": true,
-          "responsive": true,
-          "scrollX": true,
-          "pageLength": 5,
-          "lengthMenu": [5, 10, 25, 50],
-          "order": [[0, 'asc']],
-          "columnDefs": [
-            {
-              "targets": -1,
-              "orderable": false
-            }
-          ],
-          "language": {
-            "search": "Filtering Keyword:",
-            "lengthMenu": "Show _MENU_ entries",
-            "info": "_START_ - _END_ of _TOTAL_",
-            "infoEmpty": "No data available",
-            "paginate": {
-              "first": "First",
-              "last": "Last",
-              "next": "Next",
-              "previous": "Previous"
-            }
-          }
-        });
-
-        // Initialize spec details
-        updateSpecDetails(0);
-      },
-      showCancelButton: true,
-      confirmButtonText: "Continue",
-      cancelButtonText: "Cancel",
-      preConfirm: () => {
-        return parseInt(document.getElementById('selectedSpecIndex').value);
-      }
-    }).then((result) => {
-      if (result.isConfirmed) {
-        // User selected a spec and confirmed
-        var selectedSpec = res.data[result.value];
-        console.log("User selected spec:", selectedSpec);
-
-        // Search for images based on the selected spec
-        const searchImageURL = `${tbApiBase()}/ns/system/resources/searchImage`;
-        const searchImageBody = {
-          matchedSpecId: selectedSpec.id,
-          osType: document.getElementById("osImage").value,
-        };
-
-        console.log("Searching images for selected spec:", selectedSpec.id);
-
-        // Get namespace for custom image API call
-        var namespace = window.configNamespace || getConfig().namespace || '';
-
-        // Search images API call and custom images API call in parallel
-        Promise.all([
-          // Regular images search
-          axios({
-            method: "post",
-            url: searchImageURL,
-            headers: { "Content-Type": "application/json" },
-            data: JSON.stringify(searchImageBody),
-            auth: {
-              username: `${username}`,
-              password: `${password}`,
-            },
-          }),
-          // Custom images fetch
-          axios({
-            method: "get",
-            url: `${tbApiBase()}/ns/${namespace}/resources/customImage`,
-            headers: { "Content-Type": "application/json" },
-            auth: {
-              username: `${username}`,
-              password: `${password}`,
-            },
-          }).catch(err => {
-            console.log("Failed to fetch custom images (will continue with regular images only):", err);
-            return { data: { customImage: [] } }; // Return empty array if custom images API fails
-          })
-        ]).then(([searchRes, customImageRes]) => {
-          console.log("searchImage response:", searchRes.data);
-          console.log("customImage response:", customImageRes.data);
-
-          let availableImages = [];
-          let customImages = [];
-          
-          // Process regular images
-          if (searchRes.data && searchRes.data.imageList && searchRes.data.imageList.length > 0) {
-            availableImages = searchRes.data.imageList.map(img => ({
-              id: img.id || "unknown",
-              cspImageName: img.cspImageName || "unknown",
-              osType: img.osType || "unknown",
-              osDistribution: img.osDistribution || "unknown",
-              osArchitecture: img.osArchitecture || "unknown",
-              creationDate: img.creationDate || "unknown",
-              description: img.description || "No description",
-              imageStatus: img.imageStatus || "unknown",
-              osPlatform: img.osPlatform || "unknown",
-              osDiskType: img.osDiskType || "unknown",
-              osDiskSizeGB: img.osDiskSizeGB || "unknown",
-              providerName: img.providerName || "unknown",
-              connectionName: img.connectionName || "unknown",
-              infraType: img.infraType || "unknown",
-              isGPUImage: img.isGPUImage || false,
-              isKubernetesImage: img.isKubernetesImage || false,
-              isBasicImage: img.isBasicImage || false,
-              isBasicGpuImage: img.isBasicGpuImage || false,
-              isCustomImage: false,
-              details: img.details || []
-            }));
-
-            console.log("Available regular images for this spec:");
-            console.table(availableImages);
-          }
-
-          // Process custom images - filter by matching provider and region
-          if (customImageRes.data && customImageRes.data.customImage && customImageRes.data.customImage.length > 0) {
-            const selectedProvider = selectedSpec.providerName;
-            const selectedRegion = selectedSpec.regionName;
-            
-            customImages = customImageRes.data.customImage
-              .filter(img => {
-                // Match provider
-                const imgProvider = img.providerName || '';
-                if (imgProvider !== selectedProvider) return false;
-                
-                // Match region (regionList is an array)
-                const imgRegions = Array.isArray(img.regionList) ? img.regionList : [img.regionList];
-                if (!imgRegions.includes(selectedRegion)) return false;
-                
-                return true;
-              })
-              .map(img => ({
-                id: img.id || "unknown",
-                cspImageName: img.cspImageName || img.name || "unknown",
-                osType: img.osType || img.guestOS || "unknown",
-                osDistribution: img.osDistribution || img.description || "Custom Image",
-                osArchitecture: img.osArchitecture || "unknown",
-                creationDate: img.creationDate || "unknown",
-                description: img.description || "Custom Image",
-                imageStatus: img.imageStatus || img.status || "unknown",
-                osPlatform: img.osPlatform || "unknown",
-                osDiskType: img.osDiskType || "unknown",
-                osDiskSizeGB: img.osDiskSizeGB || "unknown",
-                providerName: img.providerName || "unknown",
-                connectionName: img.connectionName || "unknown",
-                infraType: img.infraType || "unknown",
-                isGPUImage: false,
-                isKubernetesImage: false,
-                isBasicImage: false,
-                isBasicGpuImage: false,
-                isCustomImage: true, // Mark as custom image
-                details: img.details || []
-              }));
-
-            console.log("Available custom images for this spec:");
-            console.table(customImages);
-          }
-
-          // Merge custom images at the top, then regular images
-          availableImages = [...customImages, ...availableImages];
-
-          if (availableImages.length === 0) {
-            errorAlert("No images found for the selected specification");
-            return;
-          }
-
-          // Detect GPU spec
-          const isGpuSpec = selectedSpec.acceleratorType === "gpu";
-
-          // Re-sort when GPU spec is selected: custom > basic GPU > basic OS > GPU > rest
-          if (isGpuSpec) {
-            const gpuSortScore = img =>
-              img.isCustomImage    ? 4 :
-              img.isBasicGpuImage  ? 3 :
-              img.isBasicImage     ? 2 :
-              img.isGPUImage       ? 1 : 0;
-            availableImages.sort((a, b) => gpuSortScore(b) - gpuSortScore(a));
-          }
-
-          // Build spec summary for display in image selection popup
-          const esc = window.escapeHtml;
-          const specCost = (selectedSpec.costPerHour > 0)
-            ? `$${parseFloat(selectedSpec.costPerHour).toFixed(5)}/h`
-            : 'N/A';
-          const specAccel = (selectedSpec.acceleratorType === 'gpu' && selectedSpec.acceleratorModel)
-            ? `<span style="color:#c0392b;font-weight:bold;"> | GPU: ${esc(selectedSpec.acceleratorModel)} ×${esc(String(selectedSpec.acceleratorCount || '?'))} (${esc(String(selectedSpec.acceleratorMemoryGB || '?'))}GB/ea)</span>`
-            : '';
-
-          // Image selection popup
-          Swal.fire({
-            title: "Select an Image from the Image Search List",
-            width: 1200,
-            html: `
-              <div class="compact-datatable">
-                <div style="margin-bottom:8px;padding:6px 12px;background:#f0f4ff;border:1px solid #c5cae9;border-radius:5px;font-size:0.8rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                  <span style="font-weight:bold;color:#1565c0;">Selected Spec</span>
-                  <span style="font-family:monospace;color:#333;">${esc(selectedSpec.id || '')}</span>
-                  <span style="color:#555;">| ${esc((selectedSpec.providerName || '').toUpperCase())} ${esc(selectedSpec.regionName || '')}</span>
-                  <span style="color:#555;">| vCPU: ${esc(String(selectedSpec.vCPU || ''))} | Mem: ${esc(String(selectedSpec.memoryGiB || ''))} GiB | Arch: ${esc(selectedSpec.architecture || 'N/A')}</span>
-                  <span style="color:#555;">| ${esc(specCost)}</span>
-                  ${specAccel}
-                </div>
-                ${isGpuSpec ? `
-                <div style="margin-bottom:8px;padding:6px 10px;background:linear-gradient(90deg,#fff3cd,#fff8e1);border:1px solid #ffc107;border-radius:5px;font-size:0.8rem;display:flex;align-items:center;gap:6px;">
-                  <span style="font-size:1.1em;">⚡</span>
-                  <span><b>GPU Spec selected</b> — <span style="color:#e74c3c;">⭐🧮 Basic GPU images</span> (GPU drivers pre-installed) are listed first. Plain OS images are also available.</span>
-                </div>` : ''}
-                <div class="table-responsive">
-                  <table id="imageSelectionTable" class="display nowrap" style="width:100%">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>OS Type</th>
-                        <th>Image Name</th>
-                        <th>Distribution</th>
-                        <th>Support</th>
-                        <th>Arch</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${availableImages.map((image, index) => {
-                        const isRecommendedGpu = isGpuSpec && image.isBasicGpuImage;
-
-                        // Row class
-                        const isCustomClass = image.isCustomImage ? 'custom-image-row' : '';
-                        const rowClass = isRecommendedGpu ? 'recommended-gpu-image-row' : (image.isBasicImage ? 'basic-image-row' : '');
-
-                        // # column icons
-                        const customIcon = image.isCustomImage ? ' <span class="custom-image-icon" title="Custom Image (Snapshot)">📸</span>' : '';
-                        const basicIcon = image.isBasicImage ? ' <span class="basic-image-icon" title="Basic OS Image">⭐</span>' : '';
-
-                        // Support column icons — always show GPU/k8s status regardless of spec type
-                        // isBasicGpuImage: GPU drivers pre-installed (recommended for GPU workloads)
-                        // isGPUImage without isBasicGpuImage: GPU-capable but no pre-installed drivers
-                        const gpuIcon = image.isBasicGpuImage
-                          ? ' <span class="recommended-gpu-icon" title="Basic GPU Image (GPU drivers pre-installed)">⭐🧮</span>'
-                          : (image.isGPUImage ? ' <span class="ml-image-icon" title="GPU Support">🧮</span>' : '');
-                        const k8sIcon = image.isKubernetesImage ? ' <span class="k8s-image-icon" title="Kubernetes Support">☸️</span>' : '';
-                        
-                        // Truncate long text for better table layout - increased limits for more space
-                        const truncateText = (text, maxLength) => {
-                          if (text.length <= maxLength) return text;
-                          return text.substring(0, maxLength) + '..';
-                        };
-                        
-                        const truncatedImageName = truncateText(image.cspImageName, 70);
-                        const truncatedDistribution = truncateText(image.osDistribution, 70);
-                        
-                        return `
-                          <tr id="image-row-${index}" class="${index === 0 ? 'selected-image' : ''} ${isCustomClass} ${rowClass}" data-index="${index}">
-                            <td class="text-left">${index + 1}${customIcon}${basicIcon}</td>
-                            <td class="text-left">${image.osType}</td>
-                            <td class="text-left" style="font-size: 0.85em; color: #0066cc;" title="${image.cspImageName}">${truncatedImageName}</td>
-                            <td class="text-left" style="font-size: 0.9em;" title="${image.osDistribution}">${truncatedDistribution}</td>
-                            <td class="text-center">${gpuIcon}${k8sIcon}</td>
-                            <td class="text-center">${image.osArchitecture}</td>
-                          </tr>
-                        `;
-                      }).join('')}
-                    </tbody>
-                  </table>
-                </div>
-                <div id="imageDetailsContainer" style="margin-top:15px;padding:8px;border:1px solid #ddd;border-radius:5px;height:280px;overflow-y:auto;display:flex;flex-direction:column;">
-                  <h5 style="font-size: 0.85rem;margin-bottom:5px;flex-shrink:0;">Selected Image Details</h5>
-                  <div id="imageDetailsContent" style="flex:1;overflow-y:auto;"></div>
-                </div>
-                <details id="directImageIdContainer" style="margin-top:10px;border:1px solid #ced4da;border-radius:5px;background-color:#f8f9fa;">
-                  <summary style="padding:8px 12px;cursor:pointer;font-size:0.8rem;color:#6c757d;user-select:none;">Enter Image ID directly...</summary>
-                  <div style="padding:10px 12px;border-top:1px solid #ced4da;">
-                    <div style="display:flex;gap:8px;align-items:center;">
-                      <input type="text" id="directImageIdInput" placeholder="e.g., ami-0abcdef1234567890" aria-label="Direct Image ID Input" style="flex:1;padding:6px 8px;border:1px solid #ced4da;border-radius:4px;font-size:0.8rem;">
-                      <button type="button" id="useDirectImageIdBtn" class="btn btn-info btn-sm" style="padding:4px 10px;font-size:0.75rem;">Apply</button>
-                      <button type="button" id="clearDirectImageIdBtn" class="btn btn-outline-secondary btn-sm" style="padding:4px 8px;font-size:0.75rem;">Clear</button>
-                    </div>
-                    <div id="directImageIdStatus" style="margin-top:6px;font-size:0.75rem;"></div>
-                  </div>
-                </details>
-                <input type="hidden" id="selectedImageIndex" value="0">
-                <input type="hidden" id="useDirectImageIdFlag" value="false">
-                <input type="hidden" id="directImageIdValue" value="">
-              </div>
-              <style>
-                /* Apply compact styling to all DataTable elements */
-                .compact-datatable {
-                  font-size: 0.8rem;
-                }
-                
-                /* Fix table layout for consistent column widths */
-                #imageSelectionTable {
-                  table-layout: fixed !important;
-                  width: 100% !important;
-                }
-                
-                /* Set specific column widths */
-                #imageSelectionTable th:nth-child(1),  /* # */
-                #imageSelectionTable td:nth-child(1) {
-                  width: 8%;
-                }
-                
-                #imageSelectionTable th:nth-child(2),  /* OS Type */
-                #imageSelectionTable td:nth-child(2) {
-                  width: 12%;
-                }
-                
-                #imageSelectionTable th:nth-child(3),  /* Image Name */
-                #imageSelectionTable td:nth-child(3) {
-                  width: 35% !important;
-                  max-width: 35% !important;
-                  min-width: 35% !important;
-                }
-                
-                #imageSelectionTable th:nth-child(4),  /* OS Distribution */
-                #imageSelectionTable td:nth-child(4) {
-                  width: 35% !important;
-                  max-width: 35% !important;
-                  min-width: 35% !important;
-                }
-                
-                #imageSelectionTable th:nth-child(5),  /* Support */
-                #imageSelectionTable td:nth-child(5) {
-                  width: 10%;
-                }
-                
-                #imageSelectionTable th:nth-child(6),  /* Architecture */
-                #imageSelectionTable td:nth-child(6) {
-                  width: 10%;
-                }
-                
-                #imageSelectionTable th,
-                #imageSelectionTable td {
-                  overflow: hidden;
-                  text-overflow: ellipsis;
-                  white-space: nowrap;
-                }
-                
-                /* Allow text wrapping only for specific columns that need it */
-                #imageSelectionTable td:nth-child(3),  /* Image Name */
-                #imageSelectionTable td:nth-child(4) { /* OS Distribution */
-                  white-space: normal;
-                  word-wrap: break-word;
-                  word-break: break-all;
-                }
-                
-                /* Stronger highlight for selected row */
-                .selected-image {
-                  background-color: rgba(40, 167, 69, 0.35) !important;
-                  border-left: 5px solid rgb(40, 167, 69) !important;
-                  font-weight: bold;
-                }
-                table.dataTable tbody tr.selected-image {
-                  background-color: rgba(40, 167, 69, 0.35) !important;
-                  border-left: 5px solid rgb(40, 167, 69) !important;
-                }
-                
-                /* Make rows clickable */
-                #imageSelectionTable tbody tr {
-                  cursor: pointer;
-                }
-                #imageSelectionTable tbody tr:hover {
-                  background-color: rgba(0, 123, 255, 0.08) !important;
-                }
-                
-                /* Recommended GPU Image row styling */
-                .recommended-gpu-image-row {
-                  background-color: rgba(231, 76, 60, 0.08) !important;
-                  border-left: 3px solid #e74c3c !important;
-                }
-                .recommended-gpu-image-row:hover {
-                  background-color: rgba(231, 76, 60, 0.14) !important;
-                }
-
-                /* Recommended GPU icon */
-                .recommended-gpu-icon {
-                  font-size: 1.1em;
-                  margin-left: 5px;
-                }
-
-                /* Basic Image row styling */
-                .basic-image-row {
-                  background-color: rgba(255, 193, 7, 0.1) !important;
-                  border-left: 3px solid #ffc107 !important;
-                }
-                .basic-image-row:hover {
-                  background-color: rgba(255, 193, 7, 0.15) !important;
-                }
-                
-                /* Custom Image row styling */
-                .custom-image-row {
-                  background-color: rgba(138, 43, 226, 0.1) !important;
-                  border-left: 3px solid #8a2be2 !important;
-                }
-                .custom-image-row:hover {
-                  background-color: rgba(138, 43, 226, 0.15) !important;
-                }
-                
-                /* Custom Image icon */
-                .custom-image-icon {
-                  color: #8a2be2;
-                  font-size: 1.1em;
-                  margin-left: 5px;
-                  text-shadow: 0 0 3px rgba(138, 43, 226, 0.5);
-                }
-                
-                /* Basic Image icon */
-                .basic-image-icon {
-                  color: #ffc107;
-                  font-size: 1.1em;
-                  margin-left: 5px;
-                  text-shadow: 0 0 3px rgba(255, 193, 7, 0.5);
-                }
-                
-                /* ML Image icon */
-                .ml-image-icon {
-                  color: #e74c3c;
-                  font-size: 1.1em;
-                  margin-left: 3px;
-                  text-shadow: 0 0 3px rgba(231, 76, 60, 0.5);
-                }
-                
-                /* K8s Image icon */
-                .k8s-image-icon {
-                  color: #3498db;
-                  font-size: 1.1em;
-                  margin-left: 3px;
-                  text-shadow: 0 0 3px rgba(52, 152, 219, 0.5);
-                }
-                
-                /* Reduce spacing in details section */
-                #imageDetailsContent {
-                  line-height: 1.2;
-                }
-                #imageDetailsContent .row {
-                  margin: 0;
-                }
-                #imageDetailsContent p {
-                  margin: 2px 0;
-                }
-                
-                /* Details table styling */
-                .image-details-table {
-                  font-size: 0.75rem;
-                  max-height: 200px;
-                  overflow-y: auto;
-                }
-                .image-details-table td {
-                  padding: 0.25rem 0.5rem;
-                  border: 1px solid #dee2e6;
-                }
-                .image-details-table th {
-                  padding: 0.25rem 0.5rem;
-                  background-color: #f8f9fa;
-                  border: 1px solid #dee2e6;
-                  font-weight: bold;
-                }
-              </style>
-            `,
-            didOpen: () => {
-              // Set up row click event for the table
-              $('#imageSelectionTable tbody').on('click', 'tr', function () {
-                const index = $(this).data('index');
-                selectImageRow(index);
-              });
-
-              // Image selection function
-              window.selectImageRow = function (index) {
-                // Reset previous selection
-                document.querySelectorAll('#imageSelectionTable tbody tr').forEach(row => {
-                  row.classList.remove('selected-image');
-                });
-
-                // Select new row
-                const selectedRow = document.getElementById(`image-row-${index}`);
-                if (selectedRow) {
-                  selectedRow.classList.add('selected-image');
-                }
-
-                // Save selected index and update details
-                document.getElementById('selectedImageIndex').value = index;
-                updateImageDetails(index);
-              };
-
-              // Update image details function
-              function updateImageDetails(index) {
-                const image = availableImages[index];
-                
-                // Combined image information - simplified layout
-                const imageInfoHTML = `
-                  <div style="margin:0; padding:0; text-align: left;">
-                    <div style="margin-bottom:3px; text-align: left;">
-                      <strong>Name:</strong> ${image.cspImageName}
-                    </div>
-                    <div style="margin-bottom:3px; text-align: left;">
-                      <strong>Distribution:</strong> ${image.osDistribution}
-                    </div>
-                    <div style="margin-bottom:3px; text-align: left;">
-                      <strong>Description:</strong> ${image.description}
-                    </div>
-                    <div style="margin-bottom:3px; text-align: left;">
-                      <strong>Status:</strong> <span style="color: ${image.imageStatus === 'Available' || image.imageStatus === 'available' ? 'green' : 'orange'};">${image.imageStatus}</span>
-                    </div>
-                    ${image.isKubernetesImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>K8s Support:</strong> <span style="color: blue; font-weight: bold;">✓ Yes</span></div>` : ''}
-                    ${image.isGPUImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>GPU Support:</strong> <span style="color: red; font-weight: bold;">✓ Yes</span></div>` : ''}
-                    ${image.isBasicImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>Basic Image:</strong> <span style="color: green; font-weight: bold;">✓ Yes</span></div>` : ''}
-                    ${image.isBasicGpuImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>Basic GPU Image:</strong> <span style="color: red; font-weight: bold;">✓ Yes (GPU drivers pre-installed)</span></div>` : ''}
-                  </div>
-                `;
-
-                // Details table - simplified
-                let detailsTableHTML = "";
-                if (image.details && Array.isArray(image.details) && image.details.length > 0) {
-                  detailsTableHTML = `
-                    <div style="margin-top: 8px; text-align: left;">
-                      <table style="width:100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;">
-                        <thead>
-                          <tr>
-                            <th style="width: 35%; padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Property</th>
-                            <th style="padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${image.details.map(item =>
-                            `<tr>
-                              <td style="padding: 3px; border: 1px solid #ddd; text-align: left;"><strong>${item.key}</strong></td>
-                              <td style="padding: 3px; border: 1px solid #ddd; word-wrap: break-word; text-align: left;">${item.value}</td>
-                            </tr>`
-                          ).join('')}
-                        </tbody>
-                      </table>
-                    </div>
-                  `;
-                }
-
-                const detailsHTML = imageInfoHTML + detailsTableHTML;
-
-                document.getElementById('imageDetailsContent').innerHTML = detailsHTML;
-              }
-
-              // Initialize DataTable
-              $('#imageSelectionTable').DataTable({
-                "paging": true,
-                "searching": true,
-                "ordering": true,
-                "info": true,
-                "responsive": true,
-                "scrollX": true,
-                "pageLength": 5,
-                "lengthMenu": [5, 10, 25, 50],
-                "order": [[0, 'asc']],
-                "columnDefs": [
-                  {
-                    "targets": 0,
-                    "type": "num"
-                  },
-                  {
-                    "targets": -1,
-                    "orderable": false
-                  },
-                  {
-                    "targets": -2,
-                    "orderable": false
-                  }
-                ],
-                "language": {
-                  "search": "Filtering Keyword:",
-                  "lengthMenu": "Show _MENU_ entries",
-                  "info": "_START_ - _END_ of _TOTAL_",
-                  "infoEmpty": "No data available",
-                  "paginate": {
-                    "first": "First",
-                    "last": "Last",
-                    "next": "Next",
-                    "previous": "Previous"
-                  }
-                }
-              });
-
-              // Initialize image details
-              updateImageDetails(0);
-
-              // Direct Image ID button handlers
-              $('#useDirectImageIdBtn').on('click', function() {
-                const directImageId = $('#directImageIdInput').val().trim();
-                if (!directImageId) {
-                  $('#directImageIdStatus').html('<span style="color:red;">⚠️ Please enter an Image ID</span>');
-                  return;
-                }
-                // Set the flags and value
-                $('#useDirectImageIdFlag').val('true');
-                $('#directImageIdValue').val(directImageId);
-                // Clear table selection and show status
-                $('#imageSelectionTable tbody tr').removeClass('selected-image');
-                // XSS-safe: escape user input before inserting into HTML
-                const escapedId = $('<div>').text(directImageId).html();
-                $('#directImageIdStatus').html('<span style="color:green;">✅ Applied: <code>' + escapedId + '</code></span>');
-                $('#directImageIdContainer').css('border-color', '#28a745').css('background-color', '#d4edda');
-              });
-
-              $('#clearDirectImageIdBtn').on('click', function() {
-                $('#useDirectImageIdFlag').val('false');
-                $('#directImageIdValue').val('');
-                $('#directImageIdInput').val('');
-                $('#directImageIdStatus').html('');
-                $('#directImageIdContainer').css('border-color', '#ced4da').css('background-color', '#f8f9fa');
-                // Re-select the first row
-                selectImageRow(0);
-              });
-            },
-            showCancelButton: true,
-            confirmButtonText: "Continue",
-            cancelButtonText: "Cancel",
-            preConfirm: () => {
-              const useDirect = document.getElementById('useDirectImageIdFlag').value === 'true';
-              const directImageId = document.getElementById('directImageIdValue').value;
-              const selectedIndex = parseInt(document.getElementById('selectedImageIndex').value);
-              return {
-                useDirectImageId: useDirect,
-                directImageId: directImageId,
-                selectedIndex: selectedIndex
-              };
-            }
-          }).then((imageResult) => {
-            if (imageResult.isConfirmed) {
-              // Determine which image to use
-              let selectedImageId;
-              let selectedImage;
-              
-              if (imageResult.value.useDirectImageId && imageResult.value.directImageId) {
-                // User specified a direct image ID
-                selectedImageId = imageResult.value.directImageId;
-                selectedImage = {
-                  cspImageName: selectedImageId,
-                  osDistribution: "Direct Image ID (will be auto-registered if available in CSP)",
-                  osType: "Unknown",
-                  osArchitecture: "Unknown",
-                  isDirectInput: true
-                };
-                console.log("User specified direct image ID:", selectedImageId);
-              } else {
-                // User selected from the list
-                selectedImage = availableImages[imageResult.value.selectedIndex];
-                selectedImageId = selectedImage.cspImageName;
-                console.log("User selected image from list:", selectedImage);
-              }
-
-              // Now proceed to the final spec confirmation step
-              var createInfraReqVm = $.extend({}, createInfraReqVmTmplt);
-              var recommendedSpec = selectedSpec;
-
-              createInfraReqVm.name = "g" + (nodeGroupRequestFromSpecList.length + 1).toString();
-
-              var osImage = document.getElementById("osImage");
-              var diskSize = document.getElementById("diskSize");
-
-              createInfraReqVm.specId = selectedSpec.id;
-              createInfraReqVm.imageId = selectedImageId; // Use selected image ID (from list or custom input)
-              createInfraReqVm.rootDiskType = selectedSpec.rootDiskType;
-
-              var diskSizeInput = parseInt(diskSize.value, 10);
-              if (isNaN(diskSizeInput) || diskSizeInput <= 0) {
-                diskSizeInput = 0; // 0 means use CSP default
-              }
-              createInfraReqVm.rootDiskSize = diskSizeInput;
-              // Note: 0 means use CSP default, positive values specify exact size
-              // selectedSpec.rootDiskSize is now an integer from the API
-
-              // Create image display for the confirmation popup (full width available)
-              let imageSelectHTML = `
-                <div>
-                  <div style="font-size: 0.85rem; font-weight: 600; color: #333; margin-bottom: 4px; word-break: break-word;">
-                    ${selectedImage.osDistribution}
-                  </div>
-                  <code style="font-size: 0.8rem; color: #666; background: #e9ecef; padding: 4px 8px; border-radius: 4px; display: block; word-break: break-all; max-height: 60px; overflow-y: auto;">${selectedImage.cspImageName}</code>
-                </div>
-              `;
-
-              let costPerHour = selectedSpec.costPerHour;
-          if (costPerHour < 0 || !costPerHour) {
-            costPerHour = "unknown";
-          }
-          
-          // Store costPerHour in selectedSpec for buildSpecConfigPopupHtml
-          selectedSpec.costPerHour = costPerHour;
-
-          // Use setTimeout to open as independent popup (not nested)
-          setTimeout(() => {
-          Swal.fire({
-            title: "📋 NodeGroup Configuration",
-            width: 650,
-            html: buildSpecConfigPopupHtml(selectedSpec, createInfraReqVm, {
-              isEdit: false,
-              showValidation: true,
-              imageSelectHTML: imageSelectHTML,
-              currentLabels: ''
-            }),
-
-            didOpen: () => {
-              // Helper: read current dropdown values for refining the review.
-              // Empty/"default" rootDiskType means "let CSP/Spider pick its
-              // default"; the backend treats both as the same sentinel.
-              const getReviewRefinements = () => {
-                const rdtEl = document.getElementById('rootDiskTypeSelect');
-                const zoneEl = document.getElementById('zoneSelect');
-                return {
-                  rootDiskType: rdtEl ? rdtEl.value : '',
-                  zone: zoneEl ? zoneEl.value : ''
-                };
-              };
-
-              // Call specImagePairReview API. Re-fires whenever rootDiskType
-              // or zone changes so the user sees real-time stock feedback.
-              // A monotonic request counter ensures that out-of-order responses
-              // (a slower earlier request resolving after a newer one) cannot
-              // overwrite the UI with stale validity/suggestions.
-              let reviewRequestSeq = 0;
-              const reviewSpecImagePair = async () => {
-                const statusEl = document.getElementById('specImageReviewStatus');
-                const spinnerEl = document.getElementById('specImageReviewSpinner');
-                const detailsEl = document.getElementById('specImageReviewDetails');
-                const sectionEl = document.getElementById('specImageReviewSection');
-
-                if (!statusEl || !detailsEl || !sectionEl) return;
-
-                const mySeq = ++reviewRequestSeq;
-
-                if (spinnerEl) spinnerEl.style.display = '';
-                statusEl.textContent = 'Checking...';
-                statusEl.style.backgroundColor = '#6c757d';
-                statusEl.style.color = '#fff';
-
-                const refinements = getReviewRefinements();
-
-                try {
-                  const response = await fetch(`${tbApiBase()}/specImagePairReview`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': 'Basic ' + btoa((window.configUsername || getConfig().username || '') + ':' + (window.configPassword || getConfig().password || ''))
-                    },
-                    body: JSON.stringify({
-                      specId: selectedSpec.id,
-                      imageId: selectedImageId,
-                      rootDiskType: refinements.rootDiskType,
-                      zone: refinements.zone
-                    })
-                  });
-                  
-                  if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                  }
-                  
-                  const result = await response.json();
-                  // Drop stale responses: a newer review has been kicked off
-                  // since this one started.
-                  if (mySeq !== reviewRequestSeq) return;
-                  if (spinnerEl) spinnerEl.style.display = 'none';
-                  
-                  // Helper function to escape HTML (prevent XSS)
-                  const escapeHtml = (str) => $('<div>').text(str).html();
-
-                  // Build a "suggestion" line from availability hints.
-                  const suggestionParts = [];
-                  if (result.suggestedZone) {
-                    suggestionParts.push('Suggested zone: ' + escapeHtml(result.suggestedZone));
-                  }
-                  if (result.suggestedSystemDisk) {
-                    suggestionParts.push('Suggested rootDiskType: ' + escapeHtml(result.suggestedSystemDisk));
-                  }
-                  const suggestionLine = suggestionParts.length > 0
-                    ? '<br><span style="color:#0c5460;">💡 ' + suggestionParts.join(' · ') + '</span>'
-                    : '';
-
-                  // Add CSP-reported available disk types to dropdown
-                  const rdtSelect = document.getElementById('rootDiskTypeSelect');
-                  if (rdtSelect && result.availability && result.availability.zones) {
-                    const allDisks = new Set();
-                    result.availability.zones.forEach(z => {
-                      if (z.available && z.supportedDisks) {
-                        z.supportedDisks.forEach(d => { if (d) allDisks.add(d); });
-                      }
-                    });
-                    const newDisks = Array.from(allDisks).filter(
-                      disk => !Array.from(rdtSelect.options).some(o => o.value === disk)
-                    );
-                    if (newDisks.length > 0) {
-                      // Remove existing validation group if re-triggered
-                      const existingGroup = rdtSelect.querySelector('optgroup[data-validation]');
-                      if (existingGroup) existingGroup.remove();
-                      const group = document.createElement('optgroup');
-                      group.label = '💡 Available (from validation)';
-                      group.setAttribute('data-validation', '1');
-                      newDisks.forEach(disk => {
-                        const opt = document.createElement('option');
-                        opt.value = disk;
-                        opt.textContent = disk;
-                        group.appendChild(opt);
-                      });
-                      rdtSelect.appendChild(group);
-                    }
-                    if (result.suggestedSystemDisk && (rdtSelect.value === 'default' || rdtSelect.value === '')) {
-                      rdtSelect.value = result.suggestedSystemDisk;
-                      rdtSelect.dispatchEvent(new Event('change')); // refresh size hint for the suggested type
-                    }
-                  }
-
-                  if (result.isValid) {
-                    statusEl.textContent = '✓ Valid';
-                    statusEl.style.backgroundColor = '#28a745';
-                    sectionEl.style.borderColor = '#28a745';
-                    sectionEl.style.backgroundColor = '#d4edda';
-                    
-                    let details = [];
-                    // Show main message first
-                    if (result.message) details.push(escapeHtml(result.message));
-                    if (result.estimatedCost) details.push('Cost: ' + escapeHtml(result.estimatedCost));
-                    if (result.info && result.info.length > 0) details.push(...result.info.map(escapeHtml));
-                    let html = details.join(' | ');
-                    if (result.warnings && result.warnings.length > 0) {
-                      html += '<br><span style="color:#856404;">⚠ ' + result.warnings.map(escapeHtml).join('<br>⚠ ') + '</span>';
-                    }
-                    detailsEl.innerHTML = html + suggestionLine;
-                  } else {
-                    statusEl.textContent = '✗ Risk Detected';
-                    statusEl.style.backgroundColor = '#dc3545';
-                    sectionEl.style.borderColor = '#dc3545';
-                    sectionEl.style.backgroundColor = '#f8d7da';
-                    
-                    // Show main message prominently
-                    let content = '';
-                    if (result.message) {
-                      content += '<strong>' + escapeHtml(result.message) + '</strong>';
-                    }
-                    let errors = result.errors || [];
-                    if (errors.length > 0) {
-                      content += '<br><span style="color:#dc3545;">' + errors.map(escapeHtml).join('<br>') + '</span>';
-                    }
-                    detailsEl.innerHTML = content + suggestionLine;
-                  }
-                } catch (error) {
-                  if (mySeq !== reviewRequestSeq) return;
-                  if (spinnerEl) spinnerEl.style.display = 'none';
-                  statusEl.textContent = '⚠ Check Failed';
-                  statusEl.style.backgroundColor = '#ffc107';
-                  statusEl.style.color = '#212529';
-                  detailsEl.textContent = 'Could not verify: ' + error.message;
-                  detailsEl.style.color = '#856404';
-                }
-              };
-
-              // Populate RootDiskType dropdown based on CSP (using common helper)
-              const imageIdForDisk = () => {
-                const sel = document.getElementById('osImageSelect');
-                if (sel && sel.value) return sel.value;
-                return createInfraReqVm.imageId || (typeof selectedImage !== 'undefined' && selectedImage ? selectedImage.cspImageName : '') || '';
-              };
-              const rootDiskPopulatePromise = populateRootDiskTypeSelect('rootDiskTypeSelect', selectedSpec, selectedSpec.rootDiskType || 'default',
-                { sizeInputId: 'rootDiskSizeCustom', hintId: 'rootDiskSizeHint', imageId: imageIdForDisk });
-              const osSelForHint = document.getElementById('osImageSelect');
-              if (osSelForHint) osSelForHint.addEventListener('change', () => {
-                // Image changed: re-query (OS / minimum root size differ per image), keeping the chosen type.
-                const cur = document.getElementById('rootDiskTypeSelect');
-                populateRootDiskTypeSelect('rootDiskTypeSelect', selectedSpec, cur ? cur.value : 'default',
-                  { sizeInputId: 'rootDiskSizeCustom', hintId: 'rootDiskSizeHint', imageId: imageIdForDisk });
-              });
-
-              // Fetch and populate Zone dropdown using the new availableZonesForSpec API (GET method)
-              const zonePopulatePromise = populateZoneSelect('zoneSelect', 'zoneLoadingSpinner', selectedSpec.id, '', 'zoneStatusMessage');
-
-              // Re-fire the pair review whenever the user refines rootDiskType
-              // or zone, so the suggestion/warning reflects the actual choice.
-              // Debounced to avoid bursting the API on rapid changes.
-              let reviewDebounce = null;
-              const scheduleReview = () => {
-                if (reviewDebounce) clearTimeout(reviewDebounce);
-                reviewDebounce = setTimeout(reviewSpecImagePair, 250);
-              };
-              const rdtEl = document.getElementById('rootDiskTypeSelect');
-              if (rdtEl) rdtEl.addEventListener('change', scheduleReview);
-              const zoneEl = document.getElementById('zoneSelect');
-              if (zoneEl) zoneEl.addEventListener('change', scheduleReview);
-
-              // Initial review (uses whatever default values the dropdowns have).
-              reviewSpecImagePair();
-
-              // populateZoneSelect is async; once zones are loaded the select
-              // may have a non-empty default value. Re-run the review so the
-              // first result reflects the actually-selected zone instead of
-              // the empty placeholder.
-              if (zonePopulatePromise && typeof zonePopulatePromise.then === 'function') {
-                zonePopulatePromise.then(() => {
-                  const zSel = document.getElementById('zoneSelect');
-                  if (zSel && zSel.value) scheduleReview();
-                }).catch(() => { /* populateZoneSelect logs its own errors */ });
-              }
-
-              // Focus on the Node count input for better user experience
-              const vmCountInput = document.getElementById('ndCount');
-              if (vmCountInput) {
-                vmCountInput.focus();
-              }
-
-              // Add input validation feedback for Node count
-              if (vmCountInput) {
-                vmCountInput.addEventListener('input', function() {
-                  const value = parseInt(this.value, 10);
-                  const isValid = !isNaN(value) && value >= 1 && value <= 1000;
-                  
-                  if (isValid) {
-                    this.style.borderColor = '#28a745';
-                    this.style.backgroundColor = '#f8fff9';
-                  } else {
-                    this.style.borderColor = '#dc3545';
-                    this.style.backgroundColor = '#fff5f5';
-                  }
-                });
-              }
-
-              // Add input validation feedback for root disk size
-              const rootDiskInput = document.getElementById('rootDiskSizeCustom');
-              if (rootDiskInput) {
-                rootDiskInput.addEventListener('input', function() {
-                  const value = this.value.trim();
-                  const isValid = value === 'default' || value === '' || /^\d+$/.test(value);
-                  
-                  if (isValid) {
-                    this.style.borderColor = '#28a745';
-                    this.style.backgroundColor = '#f8fff9';
-                  } else {
-                    this.style.borderColor = '#dc3545';
-                    this.style.backgroundColor = '#fff5f5';
-                  }
-                });
-              }
-
-              // Add input validation feedback for labels
-              const labelsInput = document.getElementById('vmLabels');
-              if (labelsInput) {
-                // Setup label input listener for chip sync
-                window.setupLabelInputListener('vmLabels');
-                
-                // Auto-add GPU label if spec has GPU
-                const hasGpu = selectedSpec.acceleratorType === "gpu" || selectedSpec.acceleratorModel;
-                if (hasGpu) {
-                  window.autoAddGpuLabel(true, 'vmLabels');
-                }
-                
-                labelsInput.addEventListener('input', function() {
-                  const value = this.value.trim();
-                  // Basic validation for key=value,key=value format
-                  const isValid = value === '' || /^[a-zA-Z0-9_-]+=.+?(,[a-zA-Z0-9_-]+=.+?)*$/.test(value);
-                  
-                  if (isValid) {
-                    this.style.borderColor = '#28a745';
-                    this.style.backgroundColor = '#f8fff9';
-                  } else {
-                    this.style.borderColor = '#ffc107';
-                    this.style.backgroundColor = '#fffef5';
-                  }
-                  
-                  // Sync label suggestion chips with input
-                  window.syncLabelSuggestionChips('vmLabels');
-                });
-              }
-            },
-
-            inputAttributes: {
-              autocapitalize: "off",
-            },
-            showCancelButton: true,
-            confirmButtonText: "➕ Add NodeGroup",
-            confirmButtonColor: '#28a745',
-            cancelButtonText: "Cancel",
-            //showLoaderOnConfirm: true,
-            position: "center",
-            //back(disabled section)ground color
-            backdrop: `rgba(0, 0, 0, 0.08)`,
-            preConfirm: () => {
-              // ndCount input validation
-              const vmCountInput = document.getElementById('ndCount');
-              let ndCount = parseInt(vmCountInput.value, 10);
-              if (isNaN(ndCount) || ndCount < 1) {
-                Swal.showValidationMessage('Enter a valid Node count (1 or more)');
-                return false;
-              }
-
-              // rootDiskType select validation
-              const rootDiskTypeSelect = document.getElementById('rootDiskTypeSelect');
-              let rootDiskTypeValue = rootDiskTypeSelect ? rootDiskTypeSelect.value : "default";
-              if (!rootDiskTypeValue) {
-                rootDiskTypeValue = "default";
-              }
-
-              // rootDiskSize input validation (actual value is retrieved after confirmation below)
-              const rootDiskSizeInput = document.getElementById('rootDiskSizeCustom');
-              let rootDiskSizeValue = rootDiskSizeInput.value.trim();
-              // Empty or 0 means use CSP default
-              if (rootDiskSizeValue !== "" && rootDiskSizeValue !== "0") {
-                if (!/^\d+$/.test(rootDiskSizeValue)) {
-                  Swal.showValidationMessage('Disk size must be empty (default) or a positive number');
-                  return false;
-                }
-                const sizeErr = validateDiskSizeAgainstRule(parseInt(rootDiskSizeValue, 10), getSelectedRootDiskRule(rootDiskTypeSelect));
-                if (sizeErr) {
-                  Swal.showValidationMessage(sizeErr);
-                  return false;
-                }
-              }
-
-              const osImageSelect = document.getElementById('osImageSelect');
-              if (osImageSelect && osImageSelect.value) {
-                console.log(osImageSelect.value);
-                createInfraReqVm.imageId = osImageSelect.value;
-              }
-              if (!createInfraReqVm.imageId) {
-                Swal.showValidationMessage('Select an OS image');
-                return false;
-              }
-
-              return ndCount;
-            },
-
-
-          }).then((result) => {
-            // result.value is false if result.isDenied or another key such as result.isDismissed
-            if (result.value) {
-
-              createInfraReqVm.nodeGroupSize = parseInt(result.value, 10) || 1;
-              if (createInfraReqVm.nodeGroupSize <= 0) {
-                createInfraReqVm.nodeGroupSize = 1;
-              }
-
-              const rootDiskTypeSelect = document.getElementById('rootDiskTypeSelect');
-              const rootDiskTypeValue = rootDiskTypeSelect ? rootDiskTypeSelect.value : "default";
-              console.log("RootDiskType:", rootDiskTypeValue);
-              createInfraReqVm.rootDiskType = rootDiskTypeValue || "default";
-
-              const rootDiskSizeInput = document.getElementById('rootDiskSizeCustom').value.trim();
-              if (rootDiskSizeInput) {
-                console.log("RootDiskSize:", rootDiskSizeInput);
-                createInfraReqVm.rootDiskSize = parseInt(rootDiskSizeInput, 10) || 0;
-              } else {
-                createInfraReqVm.rootDiskSize = 0;
-              }
-
-              // Get selected zone (optional)
-              const zoneSelect = document.getElementById('zoneSelect');
-              const selectedZone = zoneSelect ? zoneSelect.value : "";
-              if (selectedZone) {
-                console.log("Zone:", selectedZone);
-                createInfraReqVm.zone = selectedZone;
-              }
-
-              // Distribute Nodes across subnets (per NodeGroup)
-              const distCb = document.getElementById('distributeSubnetsCheckbox');
-              if (distCb) {
-                createInfraReqVm.distributeSubnets = distCb.checked;
-              }
-
-              // Parse labels using common helper function
-              const vmLabelsInput = document.getElementById('vmLabels').value.trim();
-              const labels = parseLabelsString(vmLabelsInput);
-              if (Object.keys(labels).length > 0) {
-                createInfraReqVm.label = labels;
-                
-                // Add used labels to recently used list
-                Object.entries(labels).forEach(([key, value]) => {
-                  window.addToRecentLabels(`${key}=${value}`);
-                });
-              }
-
-
-              console.log(
-                `${createInfraReqVm.specId}` +
-                `\t(${createInfraReqVm.nodeGroupSize})`
-              );
-              
-              // Check if we're editing an existing NodeGroup or adding a new one
-              if (window.editingNodeGroupIndex >= 0) {
-                // Update existing NodeGroup
-                nodeGroupRequestFromSpecList[window.editingNodeGroupIndex] = createInfraReqVm;
-                recommendedSpecList[window.editingNodeGroupIndex] = recommendedSpec;
-                console.log(`Updated NodeGroup at index ${window.editingNodeGroupIndex}`);
-                window.editingNodeGroupIndex = -1; // Reset editing mode
-              } else {
-                // Add new NodeGroup
-                nodeGroupRequestFromSpecList.push(createInfraReqVm);
-                recommendedSpecList.push(recommendedSpec);
-              }
-              
-              // Update NodeGroup review panel
-              renderMapFromConfig();
-              updateNodeGroupReview();
-
-              // Activate provision-tab after successful configuration
-              try {
-                // Remove active class from all tabs
-                document.querySelectorAll('.nav-link').forEach(tab => {
-                  tab.classList.remove('active');
-                });
-                document.querySelectorAll('.tab-pane').forEach(pane => {
-                  pane.classList.remove('show', 'active');
-                });
-                
-                // Activate provision-tab
-                const provisionTab = document.getElementById('provision-tab');
-                const provisionPane = document.getElementById('provision');
-                
-                if (provisionTab && provisionPane) {
-                  provisionTab.classList.add('active');
-                  provisionPane.classList.add('show', 'active');
-                  
-                  // Trigger Bootstrap tab shown event if needed
-                  if (typeof $ !== 'undefined' && $.fn.tab) {
-                    $(provisionTab).tab('show');
-                  }
-                }
-              } catch (error) {
-                console.log('Failed to activate provision tab:', error);
-              }
-            } else {
-              console.log("Node configuration failed for this location");
-              window.latLonInputPairIdx--;
-              renderMapFromConfig();
-            }
-          });
-          // Delay (ms) to ensure previous popup is fully closed before opening new one
-          }, 100);
-            } else {
-              // User canceled image selection
-              console.log("Image selection canceled");
-              window.editingNodeGroupIndex = -1; // Reset editing mode
-              window.latLonInputPairIdx--;
-              renderMapFromConfig();
-            }
-          });
-        }).catch(error => {
-          console.error("Failed to get image information:", error);
-        });
-      } else {
-        // User canceled spec selection
+    // User selects a spec from recommendation list
+    openSpecSelectionDialog(res.data).then((selectedSpec) => {
+      if (!selectedSpec) {
         console.log("Spec selection canceled");
-        window.editingNodeGroupIndex = -1; // Reset editing mode
-        window.latLonInputPairIdx--;
+        window.editingNodeGroupIndex = -1;
+        if (window.latLonInputPairIdx > 0) window.latLonInputPairIdx--;
         renderMapFromConfig();
         return;
       }
+
+      console.log("User selected spec:", selectedSpec);
+
+      // User selects an image for the chosen spec
+      openImageSelectionDialog(selectedSpec).then((imageResult) => {
+        if (!imageResult) {
+          console.log("Image selection canceled");
+          window.editingNodeGroupIndex = -1;
+          if (window.latLonInputPairIdx > 0) window.latLonInputPairIdx--;
+          renderMapFromConfig();
+          return;
+        }
+
+        const selectedImage = imageResult.selectedImage;
+        const selectedImageId = imageResult.selectedImageId;
+
+        // Now proceed to the final spec confirmation step
+        var createInfraReqVm = $.extend({}, createInfraReqVmTmplt);
+        var recommendedSpec = selectedSpec;
+
+        createInfraReqVm.name = "g" + (nodeGroupRequestFromSpecList.length + 1).toString();
+
+        var diskSize = document.getElementById("diskSize");
+        createInfraReqVm.specId = selectedSpec.id;
+        createInfraReqVm.imageId = selectedImageId;
+        createInfraReqVm.rootDiskType = selectedSpec.rootDiskType;
+
+        var diskSizeInput = diskSize ? parseInt(diskSize.value, 10) : 0;
+        if (isNaN(diskSizeInput) || diskSizeInput <= 0) {
+          diskSizeInput = 0;
+        }
+        createInfraReqVm.rootDiskSize = diskSizeInput;
+
+        let imageSelectHTML = `
+          <div>
+            <div style="font-size: 0.85rem; font-weight: 600; color: #333; margin-bottom: 4px; word-break: break-word;">
+              ${selectedImage.isCustomImage ? '📸 ' : ''}${window.escapeHtml(selectedImage.osDistribution || selectedImage.description || 'OS Image')}
+            </div>
+            <code style="font-size: 0.8rem; color: #666; background: #e9ecef; padding: 4px 8px; border-radius: 4px; display: block; word-break: break-all; max-height: 60px; overflow-y: auto;">${window.escapeHtml(selectedImage.cspImageName || selectedImageId)}</code>
+          </div>
+        `;
+
+        let costPerHour = selectedSpec.costPerHour;
+        if (costPerHour < 0 || !costPerHour) {
+          costPerHour = "unknown";
+        }
+        selectedSpec.costPerHour = costPerHour;
+
+        openNodeGroupConfigModal(selectedSpec, createInfraReqVm, imageSelectHTML, recommendedSpec);
+      }).catch(error => {
+        console.error("Failed to select image:", error);
+      });
     }).catch(function (error) {
       console.log(error);
       errorAlert("Cannot show spec selection dialog (Check log for details)");
@@ -1934,6 +650,1190 @@ function subnetDistributionCspHint(providerName) {
   return "ℹ Effect depends on this CSP's subnet/zone model; best-effort across zones where the spec is available.";
 }
 
+
+
+/**
+ * Display a modal to select a specification from the recommendation list.
+ * @param {Array} specs - List of spec objects
+ * @param {Object} [options] - Optional title, subTitle
+ * @returns {Promise<Object|null>} Selected spec or null if canceled
+ */
+function openSpecSelectionDialog(specs, options = {}) {
+  if (!specs || specs.length === 0) {
+    errorAlert("No recommended spec found with the given condition");
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    Swal.fire({
+      title: options.title || "Select a Spec from the Recommendation List",
+      width: 1200,
+      position: 'center',
+      html: `
+        <div class="compact-datatable">
+          ${options.subTitle ? `<div style="margin-bottom:8px;padding:6px 12px;background:#e8f4fd;border:1px solid #b6d4fe;border-radius:5px;font-size:0.85rem;color:#084298;font-weight:600;">${options.subTitle}</div>` : ''}
+          <div class="table-responsive">
+            <table id="specSelectionTable" class="display nowrap" style="width:100%">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>CSP</th>
+                  <th>Region</th>
+                  <th>SpecName</th>
+                  <th>Arch</th>
+                  <th>vCPU</th>
+                  <th>Mem(Gi)</th>
+                  <th>Cost($/h)</th>
+                  <th>Accelerator</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${specs.map((spec, index) => {
+                  let costPerHour = spec.costPerHour < 0 || !spec.costPerHour
+                    ? "unknown"
+                    : `$${spec.costPerHour}`;
+
+                  let acceleratorInfo;
+                  if (spec.acceleratorModel && spec.acceleratorModel !== "undefined" && spec.acceleratorModel !== "") {
+                    acceleratorInfo = `<span style="color:red;font-weight:bold">${spec.acceleratorModel} (C:${spec.acceleratorCount} ${spec.acceleratorMemoryGB})</span>`;
+                  } else {
+                    acceleratorInfo = "None";
+                  }
+
+                  return `
+                    <tr id="spec-row-${index}" class="${index === 0 ? 'selected-spec' : ''}" data-index="${index}">
+                      <td class="text-left">${index + 1}</td>
+                      <td class="text-left">${spec.providerName.toUpperCase()}</td>
+                      <td class="text-left">${spec.regionName}</td>
+                      <td class="text-left">${spec.cspSpecName}</td>
+                      <td>${spec.architecture}</td>
+                      <td>${spec.vCPU}</td>
+                      <td>${spec.memoryGiB}</td>
+                      <td>${costPerHour}</td>
+                      <td class="text-left">${acceleratorInfo}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div id="specDetailsContainer" style="margin-top:15px;padding:8px;border:1px solid #ddd;border-radius:5px;height:280px;overflow-y:auto;display:flex;flex-direction:column;">
+            <h5 style="font-size: 0.85rem;margin-bottom:5px;flex-shrink:0;">Selected Spec Details</h5>
+            <div id="specDetailsContent" style="flex:1;overflow-y:auto;"></div>
+          </div>
+          <input type="hidden" id="selectedSpecIndex" value="0">
+        </div>
+        <style>
+          .compact-datatable { font-size: 0.8rem; }
+          .selected-spec {
+            background-color: rgba(40, 167, 69, 0.35) !important;
+            border-left: 5px solid rgb(40, 167, 69) !important;
+            font-weight: bold;
+          }
+          table.dataTable tbody tr.selected-spec {
+            background-color: rgba(40, 167, 69, 0.35) !important;
+            border-left: 5px solid rgb(40, 167, 69) !important;
+          }
+          #specSelectionTable tbody tr { cursor: pointer; }
+          #specSelectionTable tbody tr:hover { background-color: rgba(0, 123, 255, 0.08) !important; }
+          #specDetailsContent .row p { margin-bottom: 0.2rem; }
+        </style>
+      `,
+      didOpen: () => {
+        $('#specSelectionTable tbody').on('click', 'tr', function () {
+          const index = $(this).data('index');
+          selectSpecRow(index);
+        });
+
+        window.selectSpecRow = function (index) {
+          document.querySelectorAll('#specSelectionTable tbody tr').forEach(row => {
+            row.classList.remove('selected-spec');
+          });
+          const selectedRow = document.getElementById(`spec-row-${index}`);
+          if (selectedRow) {
+            selectedRow.classList.add('selected-spec');
+          }
+          const selInput = document.getElementById('selectedSpecIndex');
+          if (selInput) selInput.value = index;
+          updateSpecDetails(index);
+        };
+
+        function updateSpecDetails(index) {
+          const spec = specs[index];
+          if (!spec) return;
+          let costPerHour = spec.costPerHour < 0 || !spec.costPerHour ? "unknown" : `$${spec.costPerHour}`;
+
+          const specInfoHTML = `
+            <div style="margin:0; padding:0; text-align: left;">
+              <div style="margin-bottom:3px; text-align: left;"><strong>CSP:</strong> ${spec.providerName.toUpperCase()}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Region:</strong> ${spec.regionName}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Spec Name:</strong> ${spec.cspSpecName}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Architecture:</strong> ${spec.architecture}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>vCPU:</strong> ${spec.vCPU}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Memory:</strong> ${spec.memoryGiB} GiB</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Storage:</strong> ${spec.storageGiB} GiB</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Cost:</strong> <span style="color: ${costPerHour === 'unknown' ? 'orange' : 'green'};">${costPerHour}/hour</span></div>
+              ${spec.acceleratorType === "gpu" ? `
+                <div style="margin-bottom:3px; text-align: left;"><strong>Accelerator:</strong> <span style="color: red; font-weight: bold;">✓ GPU (${spec.acceleratorModel})</span></div>
+                <div style="margin-bottom:3px; text-align: left;"><strong>GPU Count:</strong> ${spec.acceleratorCount}</div>
+                <div style="margin-bottom:3px; text-align: left;"><strong>GPU Memory:</strong> ${spec.acceleratorMemoryGB} GB</div>
+              ` : `
+                <div style="margin-bottom:3px; text-align: left;"><strong>Accelerator:</strong> <span style="color: gray;">None</span></div>
+              `}
+            </div>
+          `;
+
+          let detailsTableHTML = "";
+          if (spec.details && Array.isArray(spec.details) && spec.details.length > 0) {
+            detailsTableHTML = `
+              <div style="margin-top: 8px; text-align: left;">
+                <table style="width:100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;">
+                  <thead>
+                    <tr>
+                      <th style="width: 35%; padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Property</th>
+                      <th style="padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${spec.details.map(item =>
+                      `<tr>
+                        <td style="padding: 3px; border: 1px solid #ddd; text-align: left;"><strong>${item.key}</strong></td>
+                        <td style="padding: 3px; border: 1px solid #ddd; word-wrap: break-word; text-align: left;">${item.value}</td>
+                      </tr>`
+                    ).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }
+
+          const detailsHTML = specInfoHTML + detailsTableHTML;
+          const container = document.getElementById('specDetailsContent');
+          if (container) container.innerHTML = detailsHTML;
+        }
+
+        $('#specSelectionTable').DataTable({
+          "paging": true,
+          "searching": true,
+          "ordering": true,
+          "info": true,
+          "responsive": true,
+          "scrollX": true,
+          "pageLength": 5,
+          "lengthMenu": [5, 10, 25, 50],
+          "order": [[0, 'asc']],
+          "columnDefs": [{ "targets": -1, "orderable": false }],
+          "language": {
+            "search": "Filtering Keyword:",
+            "lengthMenu": "Show _MENU_ entries",
+            "info": "_START_ - _END_ of _TOTAL_",
+            "infoEmpty": "No data available",
+            "paginate": { "first": "First", "last": "Last", "next": "Next", "previous": "Previous" }
+          }
+        });
+
+        updateSpecDetails(0);
+      },
+      showCancelButton: true,
+      confirmButtonText: "Continue",
+      cancelButtonText: "Cancel",
+      preConfirm: () => {
+        const el = document.getElementById('selectedSpecIndex');
+        const val = el ? parseInt(el.value, 10) : 0;
+        return isNaN(val) ? 0 : val;
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        resolve(specs[result.value]);
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * Search available images and custom images for a given spec.
+ * Returns an array of image objects sorted appropriately (with GPU prioritization if applicable).
+ * @param {Object} selectedSpec
+ * @returns {Promise<Array>}
+ */
+async function fetchImagesForSpec(selectedSpec) {
+  const searchImageURL = `${tbApiBase()}/ns/system/resources/searchImage`;
+  const osTypeEl = document.getElementById("osImage");
+  const osType = osTypeEl ? osTypeEl.value : "ubuntu";
+  const searchImageBody = {
+    matchedSpecId: selectedSpec.id,
+    osType: osType,
+  };
+
+  const username = window.configUsername || getConfig().username || '';
+  const password = window.configPassword || getConfig().password || '';
+  const namespace = window.configNamespace || getConfig().namespace || '';
+
+  const [searchRes, customImageRes] = await Promise.all([
+    axios({
+      method: "post",
+      url: searchImageURL,
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify(searchImageBody),
+      auth: { username, password },
+    }).catch(err => {
+      console.warn("Failed to fetch regular images:", err);
+      return { data: { imageList: [] } };
+    }),
+    axios({
+      method: "get",
+      url: `${tbApiBase()}/ns/${namespace}/resources/customImage`,
+      headers: { "Content-Type": "application/json" },
+      auth: { username, password },
+    }).catch(err => {
+      console.log("Failed to fetch custom images (will continue with regular images only):", err);
+      return { data: { customImage: [] } };
+    })
+  ]);
+
+  let availableImages = [];
+  let customImages = [];
+
+  if (searchRes.data && searchRes.data.imageList && searchRes.data.imageList.length > 0) {
+    availableImages = searchRes.data.imageList.map(img => ({
+      id: img.id || "unknown",
+      cspImageName: img.cspImageName || "unknown",
+      osType: img.osType || "unknown",
+      osDistribution: img.osDistribution || "unknown",
+      osArchitecture: img.osArchitecture || "unknown",
+      creationDate: img.creationDate || "unknown",
+      description: img.description || "No description",
+      imageStatus: img.imageStatus || "unknown",
+      osPlatform: img.osPlatform || "unknown",
+      osDiskType: img.osDiskType || "unknown",
+      osDiskSizeGB: img.osDiskSizeGB || "unknown",
+      providerName: img.providerName || "unknown",
+      connectionName: img.connectionName || "unknown",
+      infraType: img.infraType || "unknown",
+      isGPUImage: img.isGPUImage || false,
+      isKubernetesImage: img.isKubernetesImage || false,
+      isBasicImage: img.isBasicImage || false,
+      isBasicGpuImage: img.isBasicGpuImage || false,
+      isCustomImage: false,
+      details: img.details || []
+    }));
+  }
+
+  if (customImageRes.data && customImageRes.data.customImage && customImageRes.data.customImage.length > 0) {
+    const selectedProvider = selectedSpec.providerName;
+    const selectedRegion = selectedSpec.regionName;
+
+    customImages = customImageRes.data.customImage
+      .filter(img => {
+        const imgProvider = img.providerName || '';
+        if (imgProvider !== selectedProvider) return false;
+        const imgRegions = Array.isArray(img.regionList) ? img.regionList : [img.regionList];
+        if (selectedRegion && !imgRegions.includes(selectedRegion)) return false;
+        return true;
+      })
+      .map(img => ({
+        id: img.id || "unknown",
+        cspImageName: img.cspImageName || img.name || "unknown",
+        osType: img.osType || img.guestOS || "unknown",
+        osDistribution: img.osDistribution || img.description || "Custom Image",
+        osArchitecture: img.osArchitecture || "unknown",
+        creationDate: img.creationDate || "unknown",
+        description: img.description || "Custom Image",
+        imageStatus: img.imageStatus || img.status || "unknown",
+        osPlatform: img.osPlatform || "unknown",
+        osDiskType: img.osDiskType || "unknown",
+        osDiskSizeGB: img.osDiskSizeGB || "unknown",
+        providerName: img.providerName || "unknown",
+        connectionName: img.connectionName || "unknown",
+        infraType: img.infraType || "unknown",
+        isGPUImage: false,
+        isKubernetesImage: false,
+        isBasicImage: false,
+        isBasicGpuImage: false,
+        isCustomImage: true,
+        details: img.details || []
+      }));
+  }
+
+  availableImages = [...customImages, ...availableImages];
+
+  const isGpuSpec = selectedSpec.acceleratorType === "gpu";
+  if (isGpuSpec) {
+    const gpuSortScore = img =>
+      img.isCustomImage    ? 4 :
+      img.isBasicGpuImage  ? 3 :
+      img.isBasicImage     ? 2 :
+      img.isGPUImage       ? 1 : 0;
+    availableImages.sort((a, b) => gpuSortScore(b) - gpuSortScore(a));
+  }
+
+  return availableImages;
+}
+
+/**
+ * Display a modal to select an image for a given specification.
+ * Supports direct image ID input and table row selection.
+ * @param {Object} selectedSpec - Specification object
+ * @param {string|null} [preselectedImageId] - Pre-selected image ID to highlight
+ * @returns {Promise<Object|null>} { selectedImage, selectedImageId } or null if canceled
+ */
+async function openImageSelectionDialog(selectedSpec, preselectedImageId = null) {
+  // Show quick loading popup while searching images
+  Swal.fire({
+    title: 'Loading Images',
+    text: 'Searching available images for spec...',
+    allowOutsideClick: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  let availableImages = [];
+  try {
+    availableImages = await fetchImagesForSpec(selectedSpec);
+  } catch (err) {
+    console.error("Failed to fetch images for spec:", err);
+  }
+  Swal.close();
+
+  if (!availableImages || availableImages.length === 0) {
+    errorAlert("No images found for the selected specification");
+    return null;
+  }
+
+  let initialIndex = 0;
+  if (preselectedImageId) {
+    const idx = availableImages.findIndex(img => (img.cspImageName === preselectedImageId || img.id === preselectedImageId));
+    if (idx >= 0) initialIndex = idx;
+  }
+
+  const isGpuSpec = selectedSpec.acceleratorType === "gpu";
+  const specCost = (selectedSpec.costPerHour > 0)
+    ? `$${parseFloat(selectedSpec.costPerHour).toFixed(5)}/h`
+    : 'N/A';
+  const specAccel = (selectedSpec.acceleratorType === 'gpu' && selectedSpec.acceleratorModel)
+    ? `<span style="color:#c0392b;font-weight:bold;"> | GPU: ${esc(selectedSpec.acceleratorModel)} ×${esc(String(selectedSpec.acceleratorCount || '?'))} (${esc(String(selectedSpec.acceleratorMemoryGB || '?'))}GB/ea)</span>`
+    : '';
+
+  return new Promise((resolve) => {
+    Swal.fire({
+      title: "Select an Image from the Image Search List",
+      width: 1200,
+      html: `
+        <div class="compact-datatable">
+          <div style="margin-bottom:8px;padding:6px 12px;background:#f0f4ff;border:1px solid #c5cae9;border-radius:5px;font-size:0.8rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span style="font-weight:bold;color:#1565c0;">Selected Spec</span>
+            <span style="font-family:monospace;color:#333;">${esc(selectedSpec.id || '')}</span>
+            <span style="color:#555;">| ${esc((selectedSpec.providerName || '').toUpperCase())} ${esc(selectedSpec.regionName || '')}</span>
+            <span style="color:#555;">| vCPU: ${esc(String(selectedSpec.vCPU || ''))} | Mem: ${esc(String(selectedSpec.memoryGiB || ''))} GiB | Arch: ${esc(selectedSpec.architecture || 'N/A')}</span>
+            <span style="color:#555;">| ${esc(specCost)}</span>
+            ${specAccel}
+          </div>
+          ${isGpuSpec ? `
+          <div style="margin-bottom:8px;padding:6px 10px;background:linear-gradient(90deg,#fff3cd,#fff8e1);border:1px solid #ffc107;border-radius:5px;font-size:0.8rem;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:1.1em;">⚡</span>
+            <span><b>GPU Spec selected</b> — <span style="color:#e74c3c;">⭐🧮 Basic GPU images</span> (GPU drivers pre-installed) are listed first. Plain OS images are also available.</span>
+          </div>` : ''}
+          <div class="table-responsive">
+            <table id="imageSelectionTable" class="display nowrap" style="width:100%">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>OS Type</th>
+                  <th>Image Name</th>
+                  <th>Distribution</th>
+                  <th>Support</th>
+                  <th>Arch</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${availableImages.map((image, index) => {
+                  const isRecommendedGpu = isGpuSpec && image.isBasicGpuImage;
+                  const isCustomClass = image.isCustomImage ? 'custom-image-row' : '';
+                  const rowClass = isRecommendedGpu ? 'recommended-gpu-image-row' : (image.isBasicImage ? 'basic-image-row' : '');
+                  const customIcon = image.isCustomImage ? ' <span class="custom-image-icon" title="Custom Image (Snapshot)">📸</span>' : '';
+                  const basicIcon = image.isBasicImage ? ' <span class="basic-image-icon" title="Basic OS Image">⭐</span>' : '';
+                  const gpuIcon = image.isBasicGpuImage
+                    ? ' <span class="recommended-gpu-icon" title="Basic GPU Image (GPU drivers pre-installed)">⭐🧮</span>'
+                    : (image.isGPUImage ? ' <span class="ml-image-icon" title="GPU Support">🧮</span>' : '');
+                  const k8sIcon = image.isKubernetesImage ? ' <span class="k8s-image-icon" title="Kubernetes Support">☸️</span>' : '';
+                  const truncateText = (text, maxLength) => {
+                    if (!text) return '';
+                    if (text.length <= maxLength) return text;
+                    return text.substring(0, maxLength) + '..';
+                  };
+                  const truncatedImageName = truncateText(image.cspImageName, 70);
+                  const truncatedDistribution = truncateText(image.osDistribution, 70);
+                  return `
+                    <tr id="image-row-${index}" class="${index === initialIndex ? 'selected-image' : ''} ${isCustomClass} ${rowClass}" data-index="${index}">
+                      <td class="text-left">${index + 1}${customIcon}${basicIcon}</td>
+                      <td class="text-left">${image.osType}</td>
+                      <td class="text-left" style="font-size: 0.85em; color: #0066cc;" title="${image.cspImageName}">${truncatedImageName}</td>
+                      <td class="text-left" style="font-size: 0.9em;" title="${image.osDistribution}">${truncatedDistribution}</td>
+                      <td class="text-center">${gpuIcon}${k8sIcon}</td>
+                      <td class="text-center">${image.osArchitecture}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div id="imageDetailsContainer" style="margin-top:15px;padding:8px;border:1px solid #ddd;border-radius:5px;height:280px;overflow-y:auto;display:flex;flex-direction:column;">
+            <h5 style="font-size: 0.85rem;margin-bottom:5px;flex-shrink:0;">Selected Image Details</h5>
+            <div id="imageDetailsContent" style="flex:1;overflow-y:auto;"></div>
+          </div>
+          <details id="directImageIdContainer" style="margin-top:10px;border:1px solid #ced4da;border-radius:5px;background-color:#f8f9fa;">
+            <summary style="padding:8px 12px;cursor:pointer;font-size:0.8rem;color:#6c757d;user-select:none;">Enter Image ID directly...</summary>
+            <div style="padding:10px 12px;border-top:1px solid #ced4da;">
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="directImageIdInput" placeholder="e.g., ami-0abcdef1234567890" aria-label="Direct Image ID Input" style="flex:1;padding:6px 8px;border:1px solid #ced4da;border-radius:4px;font-size:0.8rem;">
+                <button type="button" id="useDirectImageIdBtn" class="btn btn-info btn-sm" style="padding:4px 10px;font-size:0.75rem;">Apply</button>
+                <button type="button" id="clearDirectImageIdBtn" class="btn btn-outline-secondary btn-sm" style="padding:4px 8px;font-size:0.75rem;">Clear</button>
+              </div>
+              <div id="directImageIdStatus" style="margin-top:6px;font-size:0.75rem;"></div>
+            </div>
+          </details>
+          <input type="hidden" id="selectedImageIndex" value="${initialIndex}">
+          <input type="hidden" id="useDirectImageIdFlag" value="false">
+          <input type="hidden" id="directImageIdValue" value="">
+        </div>
+        <style>
+          .compact-datatable { font-size: 0.8rem; }
+          #imageSelectionTable { table-layout: fixed !important; width: 100% !important; }
+          #imageSelectionTable th:nth-child(1), #imageSelectionTable td:nth-child(1) { width: 8%; }
+          #imageSelectionTable th:nth-child(2), #imageSelectionTable td:nth-child(2) { width: 12%; }
+          #imageSelectionTable th:nth-child(3), #imageSelectionTable td:nth-child(3) { width: 35% !important; max-width: 35% !important; min-width: 35% !important; }
+          #imageSelectionTable th:nth-child(4), #imageSelectionTable td:nth-child(4) { width: 35% !important; max-width: 35% !important; min-width: 35% !important; }
+          #imageSelectionTable th:nth-child(5), #imageSelectionTable td:nth-child(5) { width: 10%; }
+          #imageSelectionTable th:nth-child(6), #imageSelectionTable td:nth-child(6) { width: 10%; }
+          #imageSelectionTable th, #imageSelectionTable td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .selected-image { background-color: rgba(40, 167, 69, 0.35) !important; border-left: 5px solid rgb(40, 167, 69) !important; font-weight: bold; }
+          table.dataTable tbody tr.selected-image { background-color: rgba(40, 167, 69, 0.35) !important; border-left: 5px solid rgb(40, 167, 69) !important; }
+          #imageSelectionTable tbody tr { cursor: pointer; }
+          #imageSelectionTable tbody tr:hover { background-color: rgba(0, 123, 255, 0.08) !important; }
+          .recommended-gpu-image-row { background-color: rgba(255, 193, 7, 0.1) !important; border-left: 3px solid #ffc107 !important; }
+          .recommended-gpu-image-row:hover { background-color: rgba(255, 193, 7, 0.15) !important; }
+          .basic-image-row { background-color: rgba(255, 193, 7, 0.1) !important; border-left: 3px solid #ffc107 !important; }
+          .basic-image-row:hover { background-color: rgba(255, 193, 7, 0.15) !important; }
+          .custom-image-row { background-color: rgba(138, 43, 226, 0.1) !important; border-left: 3px solid #8a2be2 !important; }
+          .custom-image-row:hover { background-color: rgba(138, 43, 226, 0.15) !important; }
+          .custom-image-icon { color: #8a2be2; font-size: 1.1em; margin-left: 5px; text-shadow: 0 0 3px rgba(138, 43, 226, 0.5); }
+          .basic-image-icon { color: #ffc107; font-size: 1.1em; margin-left: 5px; text-shadow: 0 0 3px rgba(255, 193, 7, 0.5); }
+          .ml-image-icon { color: #e74c3c; font-size: 1.1em; margin-left: 3px; text-shadow: 0 0 3px rgba(231, 76, 60, 0.5); }
+          .k8s-image-icon { color: #3498db; font-size: 1.1em; margin-left: 3px; text-shadow: 0 0 3px rgba(52, 152, 219, 0.5); }
+        </style>
+      `,
+      didOpen: () => {
+        $('#imageSelectionTable tbody').on('click', 'tr', function () {
+          const index = $(this).data('index');
+          selectImageRow(index);
+        });
+
+        window.selectImageRow = function (index) {
+          document.querySelectorAll('#imageSelectionTable tbody tr').forEach(row => {
+            row.classList.remove('selected-image');
+          });
+          const selectedRow = document.getElementById(`image-row-${index}`);
+          if (selectedRow) {
+            selectedRow.classList.add('selected-image');
+          }
+          const selInput = document.getElementById('selectedImageIndex');
+          if (selInput) selInput.value = index;
+          updateImageDetails(index);
+        };
+
+        function updateImageDetails(index) {
+          const image = availableImages[index];
+          if (!image) return;
+
+          const imageInfoHTML = `
+            <div style="margin:0; padding:0; text-align: left;">
+              <div style="margin-bottom:3px; text-align: left;"><strong>Name:</strong> ${image.cspImageName}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Distribution:</strong> ${image.osDistribution}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Description:</strong> ${image.description}</div>
+              <div style="margin-bottom:3px; text-align: left;"><strong>Status:</strong> <span style="color: ${image.imageStatus === 'Available' || image.imageStatus === 'available' ? 'green' : 'orange'};">${image.imageStatus}</span></div>
+              ${image.isKubernetesImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>K8s Support:</strong> <span style="color: blue; font-weight: bold;">✓ Yes</span></div>` : ''}
+              ${image.isGPUImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>GPU Support:</strong> <span style="color: red; font-weight: bold;">✓ Yes</span></div>` : ''}
+              ${image.isBasicImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>Basic Image:</strong> <span style="color: green; font-weight: bold;">✓ Yes</span></div>` : ''}
+              ${image.isBasicGpuImage ? `<div style="margin-bottom:3px; text-align: left;"><strong>Basic GPU Image:</strong> <span style="color: red; font-weight: bold;">✓ Yes (GPU drivers pre-installed)</span></div>` : ''}
+            </div>
+          `;
+
+          let detailsTableHTML = "";
+          if (image.details && Array.isArray(image.details) && image.details.length > 0) {
+            detailsTableHTML = `
+              <div style="margin-top: 8px; text-align: left;">
+                <table style="width:100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;">
+                  <thead>
+                    <tr>
+                      <th style="width: 35%; padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Property</th>
+                      <th style="padding: 3px; border: 1px solid #ddd; background: #f8f9fa; text-align: left;">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${image.details.map(item =>
+                      `<tr>
+                        <td style="padding: 3px; border: 1px solid #ddd; text-align: left;"><strong>${item.key}</strong></td>
+                        <td style="padding: 3px; border: 1px solid #ddd; word-wrap: break-word; text-align: left;">${item.value}</td>
+                      </tr>`
+                    ).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }
+
+          const detailsHTML = imageInfoHTML + detailsTableHTML;
+          const container = document.getElementById('imageDetailsContent');
+          if (container) container.innerHTML = detailsHTML;
+        }
+
+        $('#imageSelectionTable').DataTable({
+          "paging": true,
+          "searching": true,
+          "ordering": true,
+          "info": true,
+          "responsive": true,
+          "scrollX": true,
+          "pageLength": 5,
+          "lengthMenu": [5, 10, 25, 50],
+          "order": [[0, 'asc']],
+          "columnDefs": [
+            { "targets": 0, "type": "num" },
+            { "targets": -1, "orderable": false },
+            { "targets": -2, "orderable": false }
+          ],
+          "language": {
+            "search": "Filtering Keyword:",
+            "lengthMenu": "Show _MENU_ entries",
+            "info": "_START_ - _END_ of _TOTAL_",
+            "infoEmpty": "No data available",
+            "paginate": { "first": "First", "last": "Last", "next": "Next", "previous": "Previous" }
+          }
+        });
+
+        updateImageDetails(initialIndex);
+
+        $('#useDirectImageIdBtn').on('click', function() {
+          const directImageId = $('#directImageIdInput').val().trim();
+          if (!directImageId) {
+            $('#directImageIdStatus').html('<span style="color:red;">⚠️ Please enter an Image ID</span>');
+            return;
+          }
+          $('#useDirectImageIdFlag').val('true');
+          $('#directImageIdValue').val(directImageId);
+          $('#imageSelectionTable tbody tr').removeClass('selected-image');
+          const escapedId = $('<div>').text(directImageId).html();
+          $('#directImageIdStatus').html('<span style="color:green;">✅ Applied: <code>' + escapedId + '</code></span>');
+          $('#directImageIdContainer').css('border-color', '#28a745').css('background-color', '#d4edda');
+        });
+
+        $('#clearDirectImageIdBtn').on('click', function() {
+          $('#useDirectImageIdFlag').val('false');
+          $('#directImageIdValue').val('');
+          $('#directImageIdInput').val('');
+          $('#directImageIdStatus').html('');
+          $('#directImageIdContainer').css('border-color', '#ced4da').css('background-color', '#f8f9fa');
+          selectImageRow(0);
+        });
+      },
+      showCancelButton: true,
+      confirmButtonText: "Continue",
+      cancelButtonText: "Cancel",
+      preConfirm: () => {
+        const useDirect = document.getElementById('useDirectImageIdFlag').value === 'true';
+        const directImageId = document.getElementById('directImageIdValue').value;
+        const selectedIndex = parseInt(document.getElementById('selectedImageIndex').value, 10);
+        return {
+          useDirectImageId: useDirect,
+          directImageId: directImageId,
+          selectedIndex: isNaN(selectedIndex) ? 0 : selectedIndex
+        };
+      }
+    }).then((imageResult) => {
+      if (imageResult.isConfirmed) {
+        let selectedImageId;
+        let selectedImage;
+        if (imageResult.value.useDirectImageId && imageResult.value.directImageId) {
+          selectedImageId = imageResult.value.directImageId;
+          selectedImage = {
+            cspImageName: selectedImageId,
+            osDistribution: "Direct Image ID (will be auto-registered if available in CSP)",
+            osType: "Unknown",
+            osArchitecture: "Unknown",
+            isDirectInput: true
+          };
+        } else {
+          selectedImage = availableImages[imageResult.value.selectedIndex] || availableImages[0];
+          selectedImageId = selectedImage.cspImageName || selectedImage.id;
+        }
+        resolve({ selectedImage, selectedImageId });
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * Populate Image dropdown in Edit NodeGroup modal.
+ * Groups images into Custom Images (Snapshot), Basic OS/GPU Images, and Other Images.
+ * @param {string} selectId - DOM element ID of select
+ * @param {string} spinnerId - DOM element ID of spinner
+ * @param {Object} spec - Spec object
+ * @param {string} currentImageId - Current image ID
+ * @param {string} [infoId] - DOM element ID for text description
+ */
+async function populateEditImageSelect(selectId, spinnerId, spec, currentImageId, infoId) {
+  const select = document.getElementById(selectId);
+  const spinner = document.getElementById(spinnerId);
+  const infoEl = infoId ? document.getElementById(infoId) : null;
+  if (!select) return;
+
+  if (spinner) spinner.style.display = 'inline-block';
+
+  try {
+    const images = await fetchImagesForSpec(spec);
+    if (spinner) spinner.style.display = 'none';
+
+    select.innerHTML = '';
+
+    const customImgs = images.filter(img => img.isCustomImage);
+    const basicImgs = images.filter(img => !img.isCustomImage && (img.isBasicImage || img.isBasicGpuImage));
+    const otherImgs = images.filter(img => !img.isCustomImage && !img.isBasicImage && !img.isBasicGpuImage);
+
+    let foundCurrent = false;
+
+    const createGroup = (label, list) => {
+      if (!list || list.length === 0) return;
+      const grp = document.createElement('optgroup');
+      grp.label = label;
+      list.forEach(img => {
+        const opt = document.createElement('option');
+        opt.value = img.cspImageName || img.id;
+        const icon = img.isCustomImage ? '📸 ' : (img.isBasicGpuImage ? '⭐🧮 ' : (img.isBasicImage ? '⭐ ' : ''));
+        opt.textContent = `${icon}${img.osDistribution || img.description || img.cspImageName} (${img.cspImageName})`;
+        opt.dataset.distribution = img.osDistribution || img.description || '';
+        opt.dataset.cspName = img.cspImageName || '';
+        if (opt.value === currentImageId) {
+          opt.selected = true;
+          foundCurrent = true;
+        }
+        grp.appendChild(opt);
+      });
+      select.appendChild(grp);
+    };
+
+    createGroup('📸 Custom Images (Snapshot)', customImgs);
+    createGroup('⭐ Basic OS / GPU Images', basicImgs);
+    createGroup('🌐 Other Available Images', otherImgs);
+
+    if (!foundCurrent && currentImageId) {
+      const curOpt = document.createElement('option');
+      curOpt.value = currentImageId;
+      curOpt.textContent = `Current: ${currentImageId}`;
+      curOpt.selected = true;
+      select.insertBefore(curOpt, select.firstChild);
+    }
+
+    const updateInfo = () => {
+      const opt = select.options[select.selectedIndex];
+      if (infoEl) {
+        if (opt && opt.dataset.distribution) {
+          infoEl.textContent = `${opt.dataset.distribution} | ${opt.value}`;
+        } else {
+          infoEl.textContent = select.value;
+        }
+      }
+    };
+
+    select.addEventListener('change', updateInfo);
+    updateInfo();
+  } catch (err) {
+    if (spinner) spinner.style.display = 'none';
+    console.error('Failed to populate edit image select:', err);
+    if (infoEl) infoEl.textContent = currentImageId || 'Failed to load image list';
+  }
+}
+
+/**
+ * Open NodeGroup configuration modal (used for adding or configuring NodeGroup).
+ * @param {Object} selectedSpec
+ * @param {Object} createInfraReqVm
+ * @param {string} imageSelectHTML
+ * @param {Object} recommendedSpec
+ */
+function openNodeGroupConfigModal(selectedSpec, createInfraReqVm, imageSelectHTML, recommendedSpec) {
+  setTimeout(() => {
+    Swal.fire({
+      title: "📋 NodeGroup Configuration",
+      width: 650,
+      html: buildSpecConfigPopupHtml(selectedSpec, createInfraReqVm, {
+        isEdit: false,
+        showValidation: true,
+        imageSelectHTML: imageSelectHTML,
+        currentLabels: ''
+      }),
+
+      didOpen: () => {
+        const getReviewRefinements = () => {
+          const rdtEl = document.getElementById('rootDiskTypeSelect');
+          const zoneEl = document.getElementById('zoneSelect');
+          return {
+            rootDiskType: rdtEl ? rdtEl.value : '',
+            zone: zoneEl ? zoneEl.value : ''
+          };
+        };
+
+        let reviewRequestSeq = 0;
+        const reviewSpecImagePair = async () => {
+          const statusEl = document.getElementById('specImageReviewStatus');
+          const spinnerEl = document.getElementById('specImageReviewSpinner');
+          const detailsEl = document.getElementById('specImageReviewDetails');
+          const sectionEl = document.getElementById('specImageReviewSection');
+
+          if (!statusEl || !detailsEl || !sectionEl) return;
+
+          const mySeq = ++reviewRequestSeq;
+
+          if (spinnerEl) spinnerEl.style.display = '';
+          statusEl.textContent = 'Checking...';
+          statusEl.style.backgroundColor = '#6c757d';
+          statusEl.style.color = '#fff';
+
+          const refinements = getReviewRefinements();
+
+          try {
+            const response = await fetch(`${tbApiBase()}/specImagePairReview`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Basic ' + btoa((window.configUsername || getConfig().username || '') + ':' + (window.configPassword || getConfig().password || ''))
+              },
+              body: JSON.stringify({
+                specId: selectedSpec.id,
+                imageId: createInfraReqVm.imageId,
+                rootDiskType: refinements.rootDiskType,
+                zone: refinements.zone
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            if (mySeq !== reviewRequestSeq) return;
+            if (spinnerEl) spinnerEl.style.display = 'none';
+            
+            const escapeHtml = (str) => $('<div>').text(str).html();
+
+            const suggestionParts = [];
+            if (result.suggestedZone) {
+              suggestionParts.push('Suggested zone: ' + escapeHtml(result.suggestedZone));
+            }
+            if (result.suggestedSystemDisk) {
+              suggestionParts.push('Suggested rootDiskType: ' + escapeHtml(result.suggestedSystemDisk));
+            }
+            const suggestionLine = suggestionParts.length > 0
+              ? '<br><span style="color:#0c5460;">💡 ' + suggestionParts.join(' · ') + '</span>'
+              : '';
+
+            const rdtSelect = document.getElementById('rootDiskTypeSelect');
+            if (rdtSelect && result.availability && result.availability.zones) {
+              const allDisks = new Set();
+              result.availability.zones.forEach(z => {
+                if (z.available && z.supportedDisks) {
+                  z.supportedDisks.forEach(d => { if (d) allDisks.add(d); });
+                }
+              });
+              const newDisks = Array.from(allDisks).filter(
+                disk => !Array.from(rdtSelect.options).some(o => o.value === disk)
+              );
+              if (newDisks.length > 0) {
+                const existingGroup = rdtSelect.querySelector('optgroup[data-validation]');
+                if (existingGroup) existingGroup.remove();
+                const group = document.createElement('optgroup');
+                group.label = '💡 Available (from validation)';
+                group.setAttribute('data-validation', '1');
+                newDisks.forEach(disk => {
+                  const opt = document.createElement('option');
+                  opt.value = disk;
+                  opt.textContent = disk;
+                  group.appendChild(opt);
+                });
+                rdtSelect.appendChild(group);
+              }
+              if (result.suggestedSystemDisk && (rdtSelect.value === 'default' || rdtSelect.value === '')) {
+                rdtSelect.value = result.suggestedSystemDisk;
+                rdtSelect.dispatchEvent(new Event('change'));
+              }
+            }
+
+            if (result.isValid) {
+              statusEl.textContent = '✓ Valid';
+              statusEl.style.backgroundColor = '#28a745';
+              sectionEl.style.borderColor = '#28a745';
+              sectionEl.style.backgroundColor = '#d4edda';
+              
+              let details = [];
+              if (result.message) details.push(escapeHtml(result.message));
+              if (result.estimatedCost) details.push('Cost: ' + escapeHtml(result.estimatedCost));
+              if (result.info && result.info.length > 0) details.push(...result.info.map(escapeHtml));
+              let html = details.join(' | ');
+              if (result.warnings && result.warnings.length > 0) {
+                html += '<br><span style="color:#856404;">⚠ ' + result.warnings.map(escapeHtml).join('<br>⚠ ') + '</span>';
+              }
+              detailsEl.innerHTML = html + suggestionLine;
+            } else {
+              statusEl.textContent = '✗ Risk Detected';
+              statusEl.style.backgroundColor = '#dc3545';
+              sectionEl.style.borderColor = '#dc3545';
+              sectionEl.style.backgroundColor = '#f8d7da';
+              
+              let content = '';
+              if (result.message) {
+                content += '<strong>' + escapeHtml(result.message) + '</strong>';
+              }
+              let errors = result.errors || [];
+              if (errors.length > 0) {
+                content += '<br><span style="color:#dc3545;">' + errors.map(escapeHtml).join('<br>') + '</span>';
+              }
+              detailsEl.innerHTML = content + suggestionLine;
+            }
+          } catch (error) {
+            if (mySeq !== reviewRequestSeq) return;
+            if (spinnerEl) spinnerEl.style.display = 'none';
+            statusEl.textContent = '⚠ Check Failed';
+            statusEl.style.backgroundColor = '#ffc107';
+            statusEl.style.color = '#212529';
+            detailsEl.textContent = 'Could not verify: ' + error.message;
+            detailsEl.style.color = '#856404';
+          }
+        };
+
+        const imageIdForDisk = () => {
+          const sel = document.getElementById('osImageSelect');
+          if (sel && sel.value) return sel.value;
+          return createInfraReqVm.imageId || '';
+        };
+        populateRootDiskTypeSelect('rootDiskTypeSelect', selectedSpec, selectedSpec.rootDiskType || 'default',
+          { sizeInputId: 'rootDiskSizeCustom', hintId: 'rootDiskSizeHint', imageId: imageIdForDisk });
+
+        const zonePopulatePromise = populateZoneSelect('zoneSelect', 'zoneLoadingSpinner', selectedSpec.id, '', 'zoneStatusMessage');
+
+        let reviewDebounce = null;
+        const scheduleReview = () => {
+          if (reviewDebounce) clearTimeout(reviewDebounce);
+          reviewDebounce = setTimeout(reviewSpecImagePair, 250);
+        };
+        const rdtEl = document.getElementById('rootDiskTypeSelect');
+        if (rdtEl) rdtEl.addEventListener('change', scheduleReview);
+        const zoneEl = document.getElementById('zoneSelect');
+        if (zoneEl) zoneEl.addEventListener('change', scheduleReview);
+
+        reviewSpecImagePair();
+
+        if (zonePopulatePromise && typeof zonePopulatePromise.then === 'function') {
+          zonePopulatePromise.then(() => {
+            const zSel = document.getElementById('zoneSelect');
+            if (zSel && zSel.value) scheduleReview();
+          }).catch(() => {});
+        }
+
+        const vmCountInput = document.getElementById('ndCount');
+        if (vmCountInput) {
+          vmCountInput.focus();
+          vmCountInput.addEventListener('input', function() {
+            const value = parseInt(this.value, 10);
+            const isValid = !isNaN(value) && value >= 1 && value <= 1000;
+            this.style.borderColor = isValid ? '#28a745' : '#dc3545';
+            this.style.backgroundColor = isValid ? '#f8fff9' : '#fff5f5';
+          });
+        }
+
+        const rootDiskInput = document.getElementById('rootDiskSizeCustom');
+        if (rootDiskInput) {
+          rootDiskInput.addEventListener('input', function() {
+            const value = this.value.trim();
+            const isValid = value === 'default' || value === '' || /^\d+$/.test(value);
+            this.style.borderColor = isValid ? '#28a745' : '#dc3545';
+            this.style.backgroundColor = isValid ? '#f8fff9' : '#fff5f5';
+          });
+        }
+
+        const labelsInput = document.getElementById('vmLabels');
+        if (labelsInput) {
+          window.setupLabelInputListener('vmLabels');
+          const hasGpu = selectedSpec.acceleratorType === "gpu" || selectedSpec.acceleratorModel;
+          if (hasGpu) {
+            window.autoAddGpuLabel(true, 'vmLabels');
+          }
+          labelsInput.addEventListener('input', function() {
+            const value = this.value.trim();
+            const isValid = value === '' || /^[a-zA-Z0-9_-]+=.+?(,[a-zA-Z0-9_-]+=.+?)*$/.test(value);
+            this.style.borderColor = isValid ? '#28a745' : '#ffc107';
+            this.style.backgroundColor = isValid ? '#f8fff9' : '#fffef5';
+            window.syncLabelSuggestionChips('vmLabels');
+          });
+        }
+      },
+
+      inputAttributes: {
+        autocapitalize: "off",
+      },
+      showCancelButton: true,
+      confirmButtonText: "➕ Add NodeGroup",
+      confirmButtonColor: '#28a745',
+      cancelButtonText: "Cancel",
+      position: "center",
+      backdrop: `rgba(0, 0, 0, 0.08)`,
+      preConfirm: () => {
+        const vmCountInput = document.getElementById('ndCount');
+        let ndCount = parseInt(vmCountInput.value, 10);
+        if (isNaN(ndCount) || ndCount < 1) {
+          Swal.showValidationMessage('Enter a valid Node count (1 or more)');
+          return false;
+        }
+
+        const rootDiskTypeSelect = document.getElementById('rootDiskTypeSelect');
+        let rootDiskTypeValue = rootDiskTypeSelect ? rootDiskTypeSelect.value : "default";
+        if (!rootDiskTypeValue) {
+          rootDiskTypeValue = "default";
+        }
+
+        const rootDiskSizeInput = document.getElementById('rootDiskSizeCustom');
+        let rootDiskSizeValue = rootDiskSizeInput.value.trim();
+        if (rootDiskSizeValue !== "" && rootDiskSizeValue !== "0") {
+          if (!/^\d+$/.test(rootDiskSizeValue)) {
+            Swal.showValidationMessage('Disk size must be empty (default) or a positive number');
+            return false;
+          }
+          const sizeErr = validateDiskSizeAgainstRule(parseInt(rootDiskSizeValue, 10), getSelectedRootDiskRule(rootDiskTypeSelect));
+          if (sizeErr) {
+            Swal.showValidationMessage(sizeErr);
+            return false;
+          }
+        }
+
+        const osImageSelect = document.getElementById('osImageSelect');
+        if (osImageSelect && osImageSelect.value) {
+          createInfraReqVm.imageId = osImageSelect.value;
+        }
+        if (!createInfraReqVm.imageId) {
+          Swal.showValidationMessage('Select an OS image');
+          return false;
+        }
+
+        return ndCount;
+      }
+    }).then((result) => {
+      if (result.value) {
+        createInfraReqVm.nodeGroupSize = parseInt(result.value, 10) || 1;
+        if (createInfraReqVm.nodeGroupSize <= 0) {
+          createInfraReqVm.nodeGroupSize = 1;
+        }
+
+        const rootDiskTypeSelect = document.getElementById('rootDiskTypeSelect');
+        const rootDiskTypeValue = rootDiskTypeSelect ? rootDiskTypeSelect.value : "default";
+        createInfraReqVm.rootDiskType = rootDiskTypeValue || "default";
+
+        const rootDiskSizeInput = document.getElementById('rootDiskSizeCustom').value.trim();
+        if (rootDiskSizeInput) {
+          createInfraReqVm.rootDiskSize = parseInt(rootDiskSizeInput, 10) || 0;
+        } else {
+          createInfraReqVm.rootDiskSize = 0;
+        }
+
+        const zoneSelect = document.getElementById('zoneSelect');
+        const selectedZone = zoneSelect ? zoneSelect.value : "";
+        if (selectedZone) {
+          createInfraReqVm.zone = selectedZone;
+        }
+
+        const distCb = document.getElementById('distributeSubnetsCheckbox');
+        if (distCb) {
+          createInfraReqVm.distributeSubnets = distCb.checked;
+        }
+
+        const vmLabelsInput = document.getElementById('vmLabels').value.trim();
+        const labels = parseLabelsString(vmLabelsInput);
+        if (Object.keys(labels).length > 0) {
+          createInfraReqVm.label = labels;
+          Object.entries(labels).forEach(([key, value]) => {
+            window.addToRecentLabels(`${key}=${value}`);
+          });
+        }
+
+        if (window.editingNodeGroupIndex >= 0) {
+          nodeGroupRequestFromSpecList[window.editingNodeGroupIndex] = createInfraReqVm;
+          recommendedSpecList[window.editingNodeGroupIndex] = recommendedSpec;
+          window.editingNodeGroupIndex = -1;
+        } else {
+          nodeGroupRequestFromSpecList.push(createInfraReqVm);
+          recommendedSpecList.push(recommendedSpec);
+        }
+
+        renderMapFromConfig();
+        updateNodeGroupReview();
+
+        try {
+          document.querySelectorAll('.nav-link').forEach(tab => tab.classList.remove('active'));
+          document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+          const provisionTab = document.getElementById('provision-tab');
+          const provisionPane = document.getElementById('provision');
+          if (provisionTab && provisionPane) {
+            provisionTab.classList.add('active');
+            provisionPane.classList.add('show', 'active');
+            if (typeof $ !== 'undefined' && $.fn.tab) {
+              $(provisionTab).tab('show');
+            }
+          }
+        } catch (error) {
+          console.log('Failed to activate provision tab:', error);
+        }
+      } else {
+        console.log("Node configuration cancelled or failed");
+        if (window.latLonInputPairIdx > 0) {
+          window.latLonInputPairIdx--;
+        }
+        renderMapFromConfig();
+      }
+    });
+  }, 100);
+}
+
+/**
+ * Image-first workflow: Find specs and deploy infra starting from a Custom Image.
+ * @param {string} imageId - Custom image ID or name
+ */
+async function selectSpecsForImage(imageId) {
+  const cfg = getConfig();
+  const namespace = window.configNamespace || cfg.namespace || '';
+  const username = window.configUsername || cfg.username || '';
+  const password = window.configPassword || cfg.password || '';
+
+  Swal.fire({
+    title: 'Finding Specs for Image',
+    html: `Searching specs for image <code>${window.escapeHtml(imageId)}</code>...`,
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  let imageObj = null;
+
+  try {
+    const res = await axios.get(`${tbApiBase()}/ns/${namespace}/resources/customImage/${encodeURIComponent(imageId)}`, {
+      auth: { username, password }
+    });
+    if (res.data) imageObj = res.data;
+  } catch (err) {
+    console.log("Direct custom image fetch failed, searching list:", err);
+  }
+
+  if (!imageObj) {
+    try {
+      const listRes = await axios.get(`${tbApiBase()}/ns/${namespace}/resources/customImage`, {
+        auth: { username, password }
+      });
+      if (listRes.data && Array.isArray(listRes.data.customImage)) {
+        imageObj = listRes.data.customImage.find(ci => ci.id === imageId || ci.name === imageId || ci.cspImageName === imageId);
+      }
+    } catch (err) {
+      console.warn("Custom image list lookup failed:", err);
+    }
+  }
+
+  if (!imageObj) {
+    try {
+      const sysRes = await axios.get(`${tbApiBase()}/ns/system/resources/image/${encodeURIComponent(imageId)}`, {
+        auth: { username, password }
+      });
+      if (sysRes.data) imageObj = sysRes.data;
+    } catch (err) {
+      console.warn("System image lookup failed:", err);
+    }
+  }
+
+  if (!imageObj) {
+    Swal.close();
+    errorAlert(`Could not retrieve details for image: ${imageId}`);
+    return;
+  }
+
+  const providerName = imageObj.providerName;
+  const regionName = Array.isArray(imageObj.regionList) ? imageObj.regionList[0] : (imageObj.regionList || '');
+
+  if (!providerName) {
+    Swal.close();
+    errorAlert(`Provider information missing for image: ${imageId}`);
+    return;
+  }
+
+  const policies = [
+    { metric: "ProviderName", condition: [{ operand: providerName }] }
+  ];
+  if (regionName) {
+    policies.push({ metric: "RegionName", condition: [{ operand: regionName }] });
+  }
+
+  const recommendReq = {
+    filter: { policy: policies },
+    limit: 200,
+    priority: { policy: [{ metric: "cost", weight: 1.0 }] }
+  };
+
+  try {
+    const specRes = await axios.post(`${tbApiBase()}/recommendSpec`, JSON.stringify(recommendReq), {
+      headers: { "Content-Type": "application/json" },
+      auth: { username, password }
+    });
+    Swal.close();
+
+    const specs = specRes.data;
+    if (!specs || specs.length === 0) {
+      errorAlert(`No available specs found for provider "${providerName}" and region "${regionName || 'any'}"`);
+      return;
+    }
+
+    const selectedSpec = await openSpecSelectionDialog(specs, {
+      title: `Select a Spec for Image: ${imageObj.name || imageId}`,
+      subTitle: `Image: ${imageObj.osDistribution || imageObj.guestOS || 'Custom Image'} (${providerName.toUpperCase()} ${regionName})`
+    });
+
+    if (!selectedSpec) {
+      console.log("Spec selection canceled for image-first deployment");
+      return;
+    }
+
+    var createInfraReqVm = $.extend({}, createInfraReqVmTmplt);
+    createInfraReqVm.name = "g" + (nodeGroupRequestFromSpecList.length + 1).toString();
+    createInfraReqVm.specId = selectedSpec.id;
+    createInfraReqVm.imageId = imageObj.cspImageName || imageObj.id || imageId;
+    createInfraReqVm.rootDiskType = selectedSpec.rootDiskType || "default";
+    createInfraReqVm.rootDiskSize = 0;
+
+    let imageSelectHTML = `
+      <div>
+        <div style="font-size: 0.85rem; font-weight: 600; color: #333; margin-bottom: 4px; word-break: break-word;">
+          📸 ${window.escapeHtml(imageObj.osDistribution || imageObj.description || 'Custom Image')}
+        </div>
+        <code style="font-size: 0.8rem; color: #666; background: #e9ecef; padding: 4px 8px; border-radius: 4px; display: block; word-break: break-all; max-height: 60px; overflow-y: auto;">${window.escapeHtml(createInfraReqVm.imageId)}</code>
+      </div>
+    `;
+
+    selectedSpec.costPerHour = (selectedSpec.costPerHour < 0 || !selectedSpec.costPerHour) ? "unknown" : selectedSpec.costPerHour;
+
+    openNodeGroupConfigModal(selectedSpec, createInfraReqVm, imageSelectHTML, selectedSpec);
+  } catch (error) {
+    Swal.close();
+    console.error("Failed to recommend specs for image:", error);
+    errorAlert(`Failed to recommend specs for image: ${error.message || 'Unknown error'}`);
+  }
+}
+
 function buildSpecConfigPopupHtml(spec, nodeConf, options = {}) {
   const isEdit = options.isEdit || false;
   const imageSelectHTML = options.imageSelectHTML || `<span class="popup-value-sm">${nodeConf.imageId || 'N/A'}</span>`;
@@ -2086,14 +1986,35 @@ function buildSpecConfigPopupHtml(spec, nodeConf, options = {}) {
   }
   
   // 🖼️ Image Section
+  let imageSectionContent = '';
+  if (isEdit) {
+    imageSectionContent = `
+      <div class="popup-field">
+        <label class="popup-label">Operating System Image</label>
+        <div class="popup-inline">
+          <select id="editImageSelect" class="popup-select" style="flex: 1;">
+            <option value="${nodeConf.imageId || ''}">${nodeConf.imageId || 'Loading images...'}</option>
+          </select>
+          <span id="editImageSpinner" style="display:inline-block;">⏳</span>
+          <button type="button" id="editImageBrowseBtn" class="btn btn-sm btn-outline-primary" style="white-space:nowrap;font-size:0.75rem;padding:4px 8px;" title="Browse full image catalog in a table">🔍 Browse</button>
+        </div>
+        <div id="editImageDetails" style="font-size: 0.75rem; color: #666; margin-top: 4px; word-break: break-all;">${nodeConf.imageId || ''}</div>
+      </div>
+    `;
+  } else {
+    imageSectionContent = `
+      <div class="popup-field">
+        ${imageSelectHTML}
+      </div>
+    `;
+  }
+
   html += `
     <div class="popup-section">
       <div class="popup-section-title">🖼️ Image</div>
       <div class="popup-row">
         <div class="popup-col">
-          <div class="popup-field">
-            ${isEdit ? `<span class="popup-value-sm">${nodeConf.imageId || 'N/A'}</span>` : imageSelectHTML}
-          </div>
+          ${imageSectionContent}
         </div>
       </div>
     </div>
@@ -2611,7 +2532,7 @@ window.bulkEditKey = function (path) {
   });
 };
 
-function editNodeGroup(index) {
+function editNodeGroup(index, previousValues) {
   const nodeConf = nodeGroupRequestFromSpecList[index];
   const spec = recommendedSpecList[index];
   
@@ -2620,32 +2541,77 @@ function editNodeGroup(index) {
     return;
   }
   
+  // Merge previous values if returning from Image Browse dialog
+  const effectiveConf = previousValues ? {
+    ...nodeConf,
+    ...previousValues,
+    imageId: previousValues.imageId || nodeConf.imageId,
+    name: previousValues.name !== undefined ? previousValues.name : nodeConf.name,
+    nodeGroupSize: previousValues.count !== undefined ? previousValues.count : nodeConf.nodeGroupSize,
+    rootDiskType: previousValues.diskType !== undefined ? previousValues.diskType : nodeConf.rootDiskType,
+    rootDiskSize: previousValues.diskSize !== undefined ? previousValues.diskSize : nodeConf.rootDiskSize,
+    zone: previousValues.zone !== undefined ? previousValues.zone : nodeConf.zone,
+    distributeSubnets: previousValues.distributeSubnets !== undefined ? previousValues.distributeSubnets : nodeConf.distributeSubnets,
+  } : nodeConf;
+
   // Set editing mode
   window.editingNodeGroupIndex = index;
   
-  // Build zone options (will be populated after dialog opens)
-  const currentZone = nodeConf.zone || '';
-  
-  // Parse current labels using common helper
-  const currentLabels = labelsToString(nodeConf.label);
+  const currentZone = effectiveConf.zone || '';
+  const currentLabels = previousValues?.labelsText !== undefined 
+    ? previousValues.labelsText 
+    : labelsToString(effectiveConf.label);
   
   Swal.fire({
     title: "✏️ Edit NodeGroup Configuration",
     width: 650,
-    html: buildSpecConfigPopupHtml(spec, nodeConf, {
+    html: buildSpecConfigPopupHtml(spec, effectiveConf, {
       isEdit: true,
       currentLabels: currentLabels
     }),
     didOpen: () => {
-      // Use common helpers for dropdown population
-      populateRootDiskTypeSelect('editRootDiskTypeSelect', spec, nodeConf.rootDiskType || 'default',
-        { sizeInputId: 'editRootDiskSize', hintId: 'editRootDiskSizeHint', imageId: nodeConf.imageId || '' });
+      populateEditImageSelect('editImageSelect', 'editImageSpinner', spec, effectiveConf.imageId, 'editImageDetails');
+
+      const editImgSel = document.getElementById('editImageSelect');
+      if (editImgSel) {
+        editImgSel.addEventListener('change', () => {
+          populateRootDiskTypeSelect('editRootDiskTypeSelect', spec, document.getElementById('editRootDiskTypeSelect')?.value || 'default', {
+            sizeInputId: 'editRootDiskSize',
+            hintId: 'editRootDiskSizeHint',
+            imageId: editImgSel.value
+          });
+        });
+      }
+
+      const browseBtn = document.getElementById('editImageBrowseBtn');
+      if (browseBtn) {
+        browseBtn.addEventListener('click', () => {
+          const curVals = {
+            name: document.getElementById('editNodeGroupName')?.value || '',
+            count: parseInt(document.getElementById('editVmCount')?.value, 10) || 1,
+            diskType: document.getElementById('editRootDiskTypeSelect')?.value || 'default',
+            diskSize: document.getElementById('editRootDiskSize')?.value || '',
+            zone: document.getElementById('editZoneSelect')?.value || '',
+            distributeSubnets: document.getElementById('editDistributeSubnetsCheckbox')?.checked ?? true,
+            labelsText: document.getElementById('editVmLabels')?.value || '',
+            imageId: document.getElementById('editImageSelect')?.value || effectiveConf.imageId
+          };
+          Swal.close();
+          openImageSelectionDialog(spec, curVals.imageId).then(imgRes => {
+            if (imgRes && imgRes.selectedImageId) {
+              editNodeGroup(index, { ...curVals, imageId: imgRes.selectedImageId });
+            } else {
+              editNodeGroup(index, curVals);
+            }
+          });
+        });
+      }
+
+      populateRootDiskTypeSelect('editRootDiskTypeSelect', spec, effectiveConf.rootDiskType || 'default',
+        { sizeInputId: 'editRootDiskSize', hintId: 'editRootDiskSizeHint', imageId: effectiveConf.imageId || '' });
       populateZoneSelect('editZoneSelect', 'editZoneLoadingSpinner', spec.id, currentZone, null);
       
-      // Setup label input listener for chip sync
       window.setupLabelInputListener('editVmLabels');
-      
-      // Sync initial chip states
       window.syncLabelSuggestionChips('editVmLabels');
     },
     showCancelButton: true,
@@ -2661,7 +2627,12 @@ function editNodeGroup(index) {
       const distCb = document.getElementById('editDistributeSubnetsCheckbox');
       const distributeSubnets = distCb ? distCb.checked : true;
       const labelsText = document.getElementById('editVmLabels').value.trim();
+      const imageId = document.getElementById('editImageSelect')?.value || effectiveConf.imageId;
       
+      if (!imageId) {
+        Swal.showValidationMessage('Please select an OS image');
+        return false;
+      }
       if (isNaN(count) || count < 1) {
         Swal.showValidationMessage('Please provide valid Node count');
         return false;
@@ -2677,21 +2648,19 @@ function editNodeGroup(index) {
         return false;
       }
       
-      // Use common helper for label parsing
       const labels = parseLabelsString(labelsText);
-      
-      return { name, count, diskType, diskSize: parseInt(diskSize, 10) || 0, zone, labels, distributeSubnets };
+      return { name, count, diskType, diskSize: parseInt(diskSize, 10) || 0, zone, labels, distributeSubnets, imageId };
     }
   }).then((result) => {
-    window.editingNodeGroupIndex = -1; // Reset editing mode
+    window.editingNodeGroupIndex = -1;
     
     if (result.isConfirmed) {
-      // Update the Node configuration
       nodeGroupRequestFromSpecList[index].name = result.value.name;
       nodeGroupRequestFromSpecList[index].nodeGroupSize = result.value.count;
       nodeGroupRequestFromSpecList[index].rootDiskType = result.value.diskType;
       nodeGroupRequestFromSpecList[index].rootDiskSize = result.value.diskSize;
       nodeGroupRequestFromSpecList[index].distributeSubnets = result.value.distributeSubnets;
+      nodeGroupRequestFromSpecList[index].imageId = result.value.imageId;
 
       if (result.value.zone) {
         nodeGroupRequestFromSpecList[index].zone = result.value.zone;
@@ -2701,8 +2670,6 @@ function editNodeGroup(index) {
       
       if (Object.keys(result.value.labels).length > 0) {
         nodeGroupRequestFromSpecList[index].label = result.value.labels;
-        
-        // Add used labels to recently used list
         Object.entries(result.value.labels).forEach(([key, value]) => {
           window.addToRecentLabels(`${key}=${value}`);
         });
@@ -3264,9 +3231,21 @@ window.updateNodeGroupReview = updateNodeGroupReview;
 window.editNodeGroup = editNodeGroup;
 window.removeNodeGroup = removeNodeGroup;
 window.findAlternativeNodeConfig = findAlternativeNodeConfig;
+window.openSpecSelectionDialog = openSpecSelectionDialog;
+window.fetchImagesForSpec = fetchImagesForSpec;
+window.openImageSelectionDialog = openImageSelectionDialog;
+window.openNodeGroupConfigModal = openNodeGroupConfigModal;
+window.selectSpecsForImage = selectSpecsForImage;
+window.populateEditImageSelect = populateEditImageSelect;
 
 export {
   getRecommendedSpec,
+  openSpecSelectionDialog,
+  fetchImagesForSpec,
+  openImageSelectionDialog,
+  openNodeGroupConfigModal,
+  selectSpecsForImage,
+  populateEditImageSelect,
   updateNodeGroupReview,
   editNodeGroup,
   removeNodeGroup,

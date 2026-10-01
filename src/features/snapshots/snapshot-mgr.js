@@ -484,6 +484,7 @@ async function loadCustomImagesInModal(namespace) {
           <td title="${img.sourceNodeUid || 'N/A'}">${img.sourceNodeUid ? img.sourceNodeUid.substring(0, 12) + '...' : 'N/A'}</td>
           <td>${img.creationDate ? new Date(img.creationDate).toLocaleDateString() : 'N/A'}</td>
           <td style="white-space: nowrap;">
+            ${img.imageStatus === 'Available' ? `<button onclick="deployFromCustomImage('${img.id}')" class="btn btn-sm btn-success" title="Deploy Infra with this Image" style="margin-right: 2px;">🚀</button>` : ''}
             <button onclick="viewCustomImageDetails('${img.id}')" class="btn btn-sm btn-info" title="View Details">👁️</button>
             <button onclick="deleteCustomImageFromModal('${img.id}')" class="btn btn-sm btn-danger" title="Delete">🗑️</button>
           </td>
@@ -561,12 +562,23 @@ async function viewCustomImageDetails(imageId) {
           <p><strong>Description:</strong> ${img.description || 'N/A'}</p>
           <p><strong>Created:</strong> ${img.creationDate || 'N/A'}</p>
           <p><strong>Source Node UID:</strong> ${img.sourceNodeUid || 'N/A'}</p>
+          ${img.imageStatus === 'Available' ? `
+            <div style="margin-top: 15px;">
+              <button type="button" class="btn btn-success btn-block" onclick="deployFromCustomImage('${img.id}')" style="width: 100%; padding: 8px 12px; font-size: 14px; font-weight: 600;">
+                🚀 Deploy Infra with this Image
+              </button>
+            </div>
+          ` : ''}
         </div>
       `,
       confirmButtonText: 'Close',
       width: '600px'
     }).then(() => {
-      // Return to Snapshot Management modal after closing
+      // Return to Snapshot Management modal after closing (unless deploying)
+      if (window.skipSnapshotModalReopen) {
+        window.skipSnapshotModalReopen = false;
+        return;
+      }
       showSnapshotManagementModal();
     });
 
@@ -624,12 +636,34 @@ async function deleteCustomImageFromModal(imageId) {
   }
 }
 
+// Deploy Infra using selected Custom Image
+async function deployFromCustomImage(imageId) {
+  window.skipSnapshotModalReopen = true;
+  Swal.close();
+  setTimeout(() => {
+    if (typeof window.selectSpecsForImage === 'function') {
+      window.selectSpecsForImage(imageId);
+    } else {
+      Swal.fire('Error', 'Image deployment feature is not loaded', 'error');
+    }
+  }, 150);
+}
+
 // Make functions globally available
 window.showSnapshotManagementModal = showSnapshotManagementModal;
 window.createNodeSnapshotFromModal = createNodeSnapshotFromModal;
 window.loadCustomImagesInModal = loadCustomImagesInModal;
 window.viewCustomImageDetails = viewCustomImageDetails;
 window.deleteCustomImageFromModal = deleteCustomImageFromModal;
-
-
+window.deployFromCustomImage = deployFromCustomImage;
 window.toggleSnapshotAutoRefresh = toggleSnapshotAutoRefresh;
+
+export {
+  showSnapshotManagementModal,
+  createNodeSnapshotFromModal,
+  loadCustomImagesInModal,
+  viewCustomImageDetails,
+  deleteCustomImageFromModal,
+  deployFromCustomImage,
+  toggleSnapshotAutoRefresh
+};
