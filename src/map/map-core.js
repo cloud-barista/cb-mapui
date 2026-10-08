@@ -3098,25 +3098,29 @@ function getInfra() {
       window.cloudBaristaCentralData.dataDisk = [];
     });
 
-    // TODO: Object Storage API not yet available in CB-Tumblebug
-    // Get object storage - DISABLED until API is implemented
-    // var objectStorageUrl = `${tbApiBase()}/ns/${namespace}/resources/objectStorage`;
-    // axios({
-    //   method: "get",
-    //   url: objectStorageUrl,
-    //   auth: {
-    //     username: `${username}`,
-    //     password: `${password}`,
-    //   },
-    //   timeout: 10000,
-    // }).then((res) => {
-    //   var obj = res.data;
-    //   if (obj && obj.objectStorages) {
-    //     window.cloudBaristaCentralData.objectStorage = obj.objectStorages;
-    //   }
-    // }).catch(function (error) {
-    //   console.log("Object Storage API error:", error);
-    // });
+    // Get object storage
+    var objectStorageUrl = `${tbApiBase()}/ns/${namespace}/resources/objectStorage`;
+    axios({
+      method: "get",
+      url: objectStorageUrl,
+      auth: {
+        username: `${username}`,
+        password: `${password}`,
+      },
+      timeout: 10000,
+    }).then((res) => {
+      var obj = res.data;
+      if (obj && Array.isArray(obj.objectStorage)) {
+        window.cloudBaristaCentralData.objectStorage = obj.objectStorage;
+      } else if (obj && Array.isArray(obj.objectStorages)) {
+        window.cloudBaristaCentralData.objectStorage = obj.objectStorages;
+      } else {
+        window.cloudBaristaCentralData.objectStorage = [];
+      }
+    }).catch(function (error) {
+      console.log("Object Storage API error:", error);
+      window.cloudBaristaCentralData.objectStorage = [];
+    });
 
     // TODO: SQL Database API not yet available in CB-Tumblebug
     // Get SQL databases - DISABLED until API is implemented
