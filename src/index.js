@@ -39,6 +39,7 @@ import './features/schedule/schedule-mgr.js';
 import './features/tasks/task-mgr.js';
 import './features/templates/template-mgr.js';
 import './features/autopilot/autopilot.js';
+import './features/object-storage/object-storage-mgr.js';
 
 // 5. Topology Views
 import './features/topology/resource-graph.js';

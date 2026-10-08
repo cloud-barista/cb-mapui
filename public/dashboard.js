@@ -1479,8 +1479,8 @@ function updateResourceCounts() {
     const nlbElement = document.getElementById('nlbCount');
     if (nlbElement) nlbElement.textContent = nlbCount;
 
-    // Update Object Storage count (API not yet available)
-    const objectStorageCount = 0; // TODO: API not yet implemented in CB-Tumblebug
+    // Update Object Storage count
+    const objectStorageCount = centralData.objectStorage ? centralData.objectStorage.length : 0;
     const objectStorageElement = document.getElementById('objectStorageCount');
     if (objectStorageElement) objectStorageElement.textContent = objectStorageCount;
 
@@ -5964,3 +5964,15 @@ window.bulkControlNode = bulkControlNode;
 window.bulkDeleteItems = bulkDeleteItems;
 window.bulkDeregisterItems = bulkDeregisterItems;
 window.clearTableSelection = clearTableSelection;
+
+// Object Storage modal launcher (delegates to parent window)
+function openObjectStorageModal() {
+  if (window.parent && typeof window.parent.showObjectStorageModal === 'function') {
+    window.parent.showObjectStorageModal();
+  } else if (typeof window.showObjectStorageModal === 'function') {
+    window.showObjectStorageModal();
+  } else {
+    console.warn('[Dashboard] showObjectStorageModal function not found');
+  }
+}
+window.openObjectStorageModal = openObjectStorageModal;
