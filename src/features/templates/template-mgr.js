@@ -921,9 +921,28 @@ async function loadTemplateToInfraConfig(namespace, templateId) {
   // Clear existing configuration
   clearCircle('');
 
+  // Helper to run async task thunks with bounded concurrency while preserving order
+  async function runWithConcurrency(tasks, limit = 6) {
+    const results = new Array(tasks.length);
+    let cursor = 0;
+    async function worker() {
+      while (cursor < tasks.length) {
+        const idx = cursor++;
+        results[idx] = await tasks[idx]();
+      }
+    }
+    const workers = [];
+    const workerCount = Math.min(limit, tasks.length);
+    for (let i = 0; i < workerCount; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
+  }
+
   // Populate nodeGroupRequestFromSpecList and recommendedSpecList (mirrors copyInfraConfig logic)
-  // Fetch spec details for each nodeGroup in parallel via specId
-  const specFetches = infraReq.nodeGroups.map(function(sg) {
+  // Fetch spec details for each nodeGroup with bounded concurrency via specId
+  const specFetchTasks = infraReq.nodeGroups.map(function(sg) {
     var nodeConfig = $.extend({}, createInfraReqVmTmplt);
     nodeConfig.name           = sg.name           || ('g' + (nodeGroupRequestFromSpecList.length + 1));
     nodeConfig.specId         = sg.specId          || '';
@@ -940,93 +959,95 @@ async function loadTemplateToInfraConfig(namespace, templateId) {
     nodeGroupRequestFromSpecList.push(nodeConfig);
 
     // Fetch spec details if specId is available
-    if (sg.specId) {
-      const specUrl = `${tbApiBase()}/ns/system/resources/spec/${encodeURIComponent(sg.specId)}`;
-      return axios.get(specUrl, { auth: { username, password } })
-        .then(function(specRes) {
-          const s = specRes.data;
-          const prov = s.providerName || extractProviderFromSpecId(sg.specId);
-          const reg = s.regionName || extractRegionFromSpecId(sg.specId);
-          let lat = s.regionLatitude ?? s.location?.latitude ?? '';
-          let lon = s.regionLongitude ?? s.location?.longitude ?? '';
-          if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lon))) {
+    return function() {
+      if (sg.specId) {
+        const specUrl = `${tbApiBase()}/ns/system/resources/spec/${encodeURIComponent(sg.specId)}`;
+        return axios.get(specUrl, { auth: { username, password } })
+          .then(function(specRes) {
+            const s = specRes.data;
+            const prov = s.providerName || extractProviderFromSpecId(sg.specId);
+            const reg = s.regionName || extractRegionFromSpecId(sg.specId);
+            let lat = s.regionLatitude ?? s.location?.latitude ?? '';
+            let lon = s.regionLongitude ?? s.location?.longitude ?? '';
+            if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lon))) {
+              const coords = findLocationCoordinates(sg.connectionName, prov, reg);
+              if (coords) { lon = coords.lon; lat = coords.lat; }
+            }
+            return {
+              id:                       sg.specId,
+              providerName:             prov,
+              regionName:               reg,
+              cspSpecName:              s.cspSpecName              || sg.specId,
+              vCPU:                     s.vCPU                     ?? 'N/A',
+              memoryGiB:                s.memoryGiB                ?? 'N/A',
+              costPerHour:              s.costPerHour              || 0,
+              acceleratorType:          s.acceleratorType          || '',
+              acceleratorModel:         s.acceleratorModel         || '',
+              acceleratorCount:         s.acceleratorCount         || 0,
+              acceleratorMemoryGB:      s.acceleratorMemoryGB      || '',
+              connectionName:           sg.connectionName          || '',
+              rootDiskType:             sg.rootDiskType            || 'default',
+              regionLatitude:           lat,
+              regionLongitude:          lon,
+              availabilityStatus:       s.availabilityStatus       || 'Unverified',
+              availabilityReason:       s.availabilityReason       || '',
+              availableZones:           Array.isArray(s.availableZones) ? s.availableZones : [],
+              unavailableZones:         Array.isArray(s.unavailableZones) ? s.unavailableZones : [],
+              availabilityCheckedAt:    s.availabilityCheckedAt    || null,
+              availabilityRefreshAfter: s.availabilityRefreshAfter || null
+            };
+          })
+          .catch(function() {
+            // Fallback to parsed values if spec fetch fails
+            const prov = extractProviderFromSpecId(sg.specId);
+            const reg = extractRegionFromSpecId(sg.specId);
             const coords = findLocationCoordinates(sg.connectionName, prov, reg);
-            if (coords) { lon = coords.lon; lat = coords.lat; }
-          }
-          return {
-            id:                       sg.specId,
-            providerName:             prov,
-            regionName:               reg,
-            cspSpecName:              s.cspSpecName              || sg.specId,
-            vCPU:                     s.vCPU                     ?? 'N/A',
-            memoryGiB:                s.memoryGiB                ?? 'N/A',
-            costPerHour:              s.costPerHour              || 0,
-            acceleratorType:          s.acceleratorType          || '',
-            acceleratorModel:         s.acceleratorModel         || '',
-            acceleratorCount:         s.acceleratorCount         || 0,
-            acceleratorMemoryGB:      s.acceleratorMemoryGB      || '',
-            connectionName:           sg.connectionName          || '',
-            rootDiskType:             sg.rootDiskType            || 'default',
-            regionLatitude:           lat,
-            regionLongitude:          lon,
-            availabilityStatus:       s.availabilityStatus       || 'Unverified',
-            availabilityReason:       s.availabilityReason       || '',
-            availableZones:           Array.isArray(s.availableZones) ? s.availableZones : [],
-            unavailableZones:         Array.isArray(s.unavailableZones) ? s.unavailableZones : [],
-            availabilityCheckedAt:    s.availabilityCheckedAt    || null,
-            availabilityRefreshAfter: s.availabilityRefreshAfter || null
-          };
-        })
-        .catch(function() {
-          // Fallback to parsed values if spec fetch fails
-          const prov = extractProviderFromSpecId(sg.specId);
-          const reg = extractRegionFromSpecId(sg.specId);
-          const coords = findLocationCoordinates(sg.connectionName, prov, reg);
-          return {
-            id:                  sg.specId,
-            providerName:        prov,
-            regionName:          reg,
-            cspSpecName:         sg.specId,
-            vCPU:                'N/A',
-            memoryGiB:           'N/A',
-            costPerHour:         0,
-            acceleratorType:     '',
-            acceleratorModel:    '',
-            acceleratorCount:    0,
-            acceleratorMemoryGB: '',
-            connectionName:      sg.connectionName || '',
-            rootDiskType:        sg.rootDiskType   || 'default',
-            regionLatitude:      coords ? coords.lat : '',
-            regionLongitude:     coords ? coords.lon : '',
-            availabilityStatus:  'Unverified'
-          };
+            return {
+              id:                  sg.specId,
+              providerName:        prov,
+              regionName:          reg,
+              cspSpecName:         sg.specId,
+              vCPU:                'N/A',
+              memoryGiB:           'N/A',
+              costPerHour:         0,
+              acceleratorType:     '',
+              acceleratorModel:    '',
+              acceleratorCount:    0,
+              acceleratorMemoryGB: '',
+              connectionName:      sg.connectionName || '',
+              rootDiskType:        sg.rootDiskType   || 'default',
+              regionLatitude:      coords ? coords.lat : '',
+              regionLongitude:     coords ? coords.lon : '',
+              availabilityStatus:  'Unverified'
+            };
+          });
+      } else {
+        const coords = findLocationCoordinates(sg.connectionName, '', '');
+        return Promise.resolve({
+          id:                  '',
+          providerName:        '',
+          regionName:          '',
+          cspSpecName:         '',
+          vCPU:                'N/A',
+          memoryGiB:           'N/A',
+          costPerHour:         0,
+          acceleratorType:     '',
+          acceleratorModel:    '',
+          acceleratorCount:    0,
+          acceleratorMemoryGB: '',
+          connectionName:      sg.connectionName || '',
+          rootDiskType:        sg.rootDiskType   || 'default',
+          regionLatitude:      coords ? coords.lat : '',
+          regionLongitude:     coords ? coords.lon : '',
+          availabilityStatus:  'Unverified'
         });
-    } else {
-      const coords = findLocationCoordinates(sg.connectionName, '', '');
-      return Promise.resolve({
-        id:                  '',
-        providerName:        '',
-        regionName:          '',
-        cspSpecName:         '',
-        vCPU:                'N/A',
-        memoryGiB:           'N/A',
-        costPerHour:         0,
-        acceleratorType:     '',
-        acceleratorModel:    '',
-        acceleratorCount:    0,
-        acceleratorMemoryGB: '',
-        connectionName:      sg.connectionName || '',
-        rootDiskType:        sg.rootDiskType   || 'default',
-        regionLatitude:      coords ? coords.lat : '',
-        regionLongitude:     coords ? coords.lon : '',
-        availabilityStatus:  'Unverified'
-      });
-    }
+      }
+    };
   });
 
   // Wait for all spec fetches, then render
   try {
-    const specInfoList = await Promise.all(specFetches);
+    const specInfoList = await runWithConcurrency(specFetchTasks, 6);
     specInfoList.forEach(function(specInfo) {
       recommendedSpecList.push(specInfo);
     });
@@ -1107,8 +1128,26 @@ async function loadTemplateToK8sConfig(namespace, templateId) {
   // Clear existing configuration
   clearCircle('');
 
+  async function runWithConcurrency(tasks, limit = 6) {
+    const results = new Array(tasks.length);
+    let cursor = 0;
+    async function worker() {
+      while (cursor < tasks.length) {
+        const idx = cursor++;
+        results[idx] = await tasks[idx]();
+      }
+    }
+    const workers = [];
+    const workerCount = Math.min(limit, tasks.length);
+    for (let i = 0; i < workerCount; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
+  }
+
   // Populate nodeGroupRequestFromSpecList from k8s cluster configs
-  const specFetches = multiReq.clusters.map(function(cluster, idx) {
+  const specFetchTasks = multiReq.clusters.map(function(cluster, idx) {
     var nodeConfig = $.extend({}, createInfraReqVmTmplt);
     nodeConfig.name          = cluster.nodeGroupName || ('ng-' + (idx + 1));
     nodeConfig.specId        = cluster.specId        || '';
@@ -1124,91 +1163,93 @@ async function loadTemplateToK8sConfig(namespace, templateId) {
     nodeConfig.version       = cluster.version       || '';
     nodeGroupRequestFromSpecList.push(nodeConfig);
 
-    if (cluster.specId) {
-      const specUrl = `${tbApiBase()}/ns/system/resources/spec/${encodeURIComponent(cluster.specId)}`;
-      return axios.get(specUrl, { auth: { username, password } })
-        .then(function(specRes) {
-          const s = specRes.data;
-          const prov = s.providerName || extractProviderFromSpecId(cluster.specId);
-          const reg = s.regionName || extractRegionFromSpecId(cluster.specId);
-          let lat = s.regionLatitude ?? s.location?.latitude ?? '';
-          let lon = s.regionLongitude ?? s.location?.longitude ?? '';
-          if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lon))) {
+    return function() {
+      if (cluster.specId) {
+        const specUrl = `${tbApiBase()}/ns/system/resources/spec/${encodeURIComponent(cluster.specId)}`;
+        return axios.get(specUrl, { auth: { username, password } })
+          .then(function(specRes) {
+            const s = specRes.data;
+            const prov = s.providerName || extractProviderFromSpecId(cluster.specId);
+            const reg = s.regionName || extractRegionFromSpecId(cluster.specId);
+            let lat = s.regionLatitude ?? s.location?.latitude ?? '';
+            let lon = s.regionLongitude ?? s.location?.longitude ?? '';
+            if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lon))) {
+              const coords = findLocationCoordinates(cluster.connectionName, prov, reg);
+              if (coords) { lon = coords.lon; lat = coords.lat; }
+            }
+            return {
+              id:                       cluster.specId,
+              providerName:             prov,
+              regionName:               reg,
+              cspSpecName:              s.cspSpecName              || cluster.specId,
+              vCPU:                     s.vCPU                     ?? 'N/A',
+              memoryGiB:                s.memoryGiB                ?? 'N/A',
+              costPerHour:              s.costPerHour              || 0,
+              acceleratorType:          s.acceleratorType          || '',
+              acceleratorModel:         s.acceleratorModel         || '',
+              acceleratorCount:         s.acceleratorCount         || 0,
+              acceleratorMemoryGB:      s.acceleratorMemoryGB      || '',
+              connectionName:           cluster.connectionName     || '',
+              rootDiskType:             cluster.rootDiskType       || 'default',
+              regionLatitude:           lat,
+              regionLongitude:          lon,
+              availabilityStatus:       s.availabilityStatus       || 'Unverified',
+              availabilityReason:       s.availabilityReason       || '',
+              availableZones:           Array.isArray(s.availableZones) ? s.availableZones : [],
+              unavailableZones:         Array.isArray(s.unavailableZones) ? s.unavailableZones : [],
+              availabilityCheckedAt:    s.availabilityCheckedAt    || null,
+              availabilityRefreshAfter: s.availabilityRefreshAfter || null
+            };
+          })
+          .catch(function() {
+            const prov = extractProviderFromSpecId(cluster.specId);
+            const reg = extractRegionFromSpecId(cluster.specId);
             const coords = findLocationCoordinates(cluster.connectionName, prov, reg);
-            if (coords) { lon = coords.lon; lat = coords.lat; }
-          }
-          return {
-            id:                       cluster.specId,
-            providerName:             prov,
-            regionName:               reg,
-            cspSpecName:              s.cspSpecName              || cluster.specId,
-            vCPU:                     s.vCPU                     ?? 'N/A',
-            memoryGiB:                s.memoryGiB                ?? 'N/A',
-            costPerHour:              s.costPerHour              || 0,
-            acceleratorType:          s.acceleratorType          || '',
-            acceleratorModel:         s.acceleratorModel         || '',
-            acceleratorCount:         s.acceleratorCount         || 0,
-            acceleratorMemoryGB:      s.acceleratorMemoryGB      || '',
-            connectionName:           cluster.connectionName     || '',
-            rootDiskType:             cluster.rootDiskType       || 'default',
-            regionLatitude:           lat,
-            regionLongitude:          lon,
-            availabilityStatus:       s.availabilityStatus       || 'Unverified',
-            availabilityReason:       s.availabilityReason       || '',
-            availableZones:           Array.isArray(s.availableZones) ? s.availableZones : [],
-            unavailableZones:         Array.isArray(s.unavailableZones) ? s.unavailableZones : [],
-            availabilityCheckedAt:    s.availabilityCheckedAt    || null,
-            availabilityRefreshAfter: s.availabilityRefreshAfter || null
-          };
-        })
-        .catch(function() {
-          const prov = extractProviderFromSpecId(cluster.specId);
-          const reg = extractRegionFromSpecId(cluster.specId);
-          const coords = findLocationCoordinates(cluster.connectionName, prov, reg);
-          return {
-            id:                  cluster.specId,
-            providerName:        prov,
-            regionName:          reg,
-            cspSpecName:         cluster.specId,
-            vCPU:                'N/A',
-            memoryGiB:           'N/A',
-            costPerHour:         0,
-            acceleratorType:     '',
-            acceleratorModel:    '',
-            acceleratorCount:    0,
-            acceleratorMemoryGB: '',
-            connectionName:      cluster.connectionName || '',
-            rootDiskType:        cluster.rootDiskType   || 'default',
-            regionLatitude:      coords ? coords.lat : '',
-            regionLongitude:     coords ? coords.lon : '',
-            availabilityStatus:  'Unverified'
-          };
+            return {
+              id:                  cluster.specId,
+              providerName:        prov,
+              regionName:          reg,
+              cspSpecName:         cluster.specId,
+              vCPU:                'N/A',
+              memoryGiB:           'N/A',
+              costPerHour:         0,
+              acceleratorType:     '',
+              acceleratorModel:    '',
+              acceleratorCount:    0,
+              acceleratorMemoryGB: '',
+              connectionName:      cluster.connectionName || '',
+              rootDiskType:        cluster.rootDiskType   || 'default',
+              regionLatitude:      coords ? coords.lat : '',
+              regionLongitude:     coords ? coords.lon : '',
+              availabilityStatus:  'Unverified'
+            };
+          });
+      } else {
+        const coords = findLocationCoordinates(cluster.connectionName, '', '');
+        return Promise.resolve({
+          id:                  '',
+          providerName:        '',
+          regionName:          '',
+          cspSpecName:         '',
+          vCPU:                'N/A',
+          memoryGiB:           'N/A',
+          costPerHour:         0,
+          acceleratorType:     '',
+          acceleratorModel:    '',
+          acceleratorCount:    0,
+          acceleratorMemoryGB: '',
+          connectionName:      cluster.connectionName || '',
+          rootDiskType:        cluster.rootDiskType   || 'default',
+          regionLatitude:      coords ? coords.lat : '',
+          regionLongitude:     coords ? coords.lon : '',
+          availabilityStatus:  'Unverified'
         });
-    } else {
-      const coords = findLocationCoordinates(cluster.connectionName, '', '');
-      return Promise.resolve({
-        id:                  '',
-        providerName:        '',
-        regionName:          '',
-        cspSpecName:         '',
-        vCPU:                'N/A',
-        memoryGiB:           'N/A',
-        costPerHour:         0,
-        acceleratorType:     '',
-        acceleratorModel:    '',
-        acceleratorCount:    0,
-        acceleratorMemoryGB: '',
-        connectionName:      cluster.connectionName || '',
-        rootDiskType:        cluster.rootDiskType   || 'default',
-        regionLatitude:      coords ? coords.lat : '',
-        regionLongitude:     coords ? coords.lon : '',
-        availabilityStatus:  'Unverified'
-      });
-    }
+      }
+    };
   });
 
   try {
-    const specInfoList = await Promise.all(specFetches);
+    const specInfoList = await runWithConcurrency(specFetchTasks, 6);
     specInfoList.forEach(function(specInfo) {
       recommendedSpecList.push(specInfo);
     });

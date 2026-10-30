@@ -3044,12 +3044,16 @@ function ensureNodeGroupChipsAvailability() {
       const spec = recommendedSpecList[idx];
       if (!spec) continue;
       try {
-        await fetchSingleSpecAvailability(spec, false);
+        await fetchLiveSpecAvailability(spec, false);
+      } catch (err) {
+        console.warn(`Chip availability check failed for ${spec.id}:`, err);
       } finally {
         spec._checkingAvailability = false;
-        const badgeEl = document.getElementById(`nodegroup-avail-badge-${idx}`);
+        const currentIdx = recommendedSpecList.indexOf(spec);
+        const targetIdx = currentIdx >= 0 ? currentIdx : idx;
+        const badgeEl = document.getElementById(`nodegroup-avail-badge-${targetIdx}`);
         if (badgeEl) {
-          badgeEl.innerHTML = renderNodeGroupAvailabilityBadgeHtml(nodeGroupRequestFromSpecList[idx], spec);
+          badgeEl.innerHTML = renderNodeGroupAvailabilityBadgeHtml(nodeGroupRequestFromSpecList[targetIdx], spec);
         }
       }
     }
