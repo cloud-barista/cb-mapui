@@ -210,6 +210,17 @@ const TEMPLATE_TYPES = [
     }
   ]
 }`
+  },
+  {
+    key: 'initScript',
+    label: 'Init Script',
+    icon: '🧩',
+    badgeClass: 'badge-dark',
+    rawScript: true,   // body is an ordered list of shell scripts, not JSON; referenced from initScript of an Infra request
+    noApply: true,
+    placeholder: `#!/bin/bash
+# Runs on each node at first boot. TB_NODE_ID, TB_CSP, TB_REGION and the env below are exported.
+echo "$TB_CSP/$TB_REGION $TB_NODE_ID booted" > /tmp/tb-init-hello`
   }
 ];
 
@@ -407,13 +418,13 @@ function renderTemplateCard(t, typeMeta, namespace) {
           <button onclick="viewTemplateDetail('${safeNs}', '${safeType}', '${safeId}')" class="btn btn-sm btn-outline-info" title="View">👁️</button>
           ${typeMeta.key === 'infra' ? `<button onclick="loadTemplateToInfraConfig('${safeNs}', '${safeId}')" class="btn btn-sm btn-outline-primary" title="Load to MC-Infra Configuration">📋 Load to Config</button>` : ''}
           ${typeMeta.key === 'k8sCluster' ? `<button onclick="loadTemplateToK8sConfig('${safeNs}', '${safeId}')" class="btn btn-sm btn-outline-primary" title="Load to K8s Configuration">📋 Load to Config</button>` : ''}
-          <button onclick="applyTemplate('${safeNs}', '${safeType}', '${safeId}')" class="btn btn-sm btn-outline-success" title="Apply">▶️</button>
+          ${typeMeta.noApply ? '' : `<button onclick="applyTemplate('${safeNs}', '${safeType}', '${safeId}')" class="btn btn-sm btn-outline-success" title="Apply">▶️</button>`}
           <button onclick="deleteTemplate('${safeNs}', '${safeType}', '${safeId}')" class="btn btn-sm btn-outline-danger" title="Delete">🗑️</button>
         </div>
       </div>
       <div class="tmpl-card-body">
         <div style="margin-bottom:4px;color:#555;font-size:12px;">${safeDescription}</div>
-        <div style="font-size:11px;color:#888;">Created: ${createdAt}</div>
+        <div style="font-size:11px;color:#888;">Created: ${createdAt}${Array.isArray(t.scripts) ? ` · ${t.scripts.length} step${t.scripts.length === 1 ? '' : 's'}` : ''}</div>
       </div>
     </div>
   `;
@@ -528,7 +539,7 @@ async function viewTemplateDetail(namespace, type, templateId) {
           </div>
           <pre id="tmplDetailJson" style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;max-height:450px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;"></pre>
           <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn btn-success btn-sm tmpl-detail-apply">▶️ Apply This Template</button>
+            ${typeMeta.noApply ? '' : `<button class="btn btn-success btn-sm tmpl-detail-apply">▶️ Apply This Template</button>`}
             ${type === 'infra' ? `<button class="btn btn-outline-primary btn-sm tmpl-detail-load">📋 Load to Config</button>` : ''}
             ${type === 'k8sCluster' ? `<button class="btn btn-outline-primary btn-sm tmpl-detail-load-k8s">📋 Load to Config</button>` : ''}
             <button class="btn btn-outline-secondary btn-sm tmpl-detail-copy">📋 Copy JSON</button>
@@ -580,6 +591,10 @@ window.copyTemplateJson = copyTemplateJson;
 // sourceNs: namespace where the template is stored
 async function applyTemplate(sourceNs, type, templateId) {
   const typeMeta = getTemplateTypeMeta(type);
+  if (typeMeta.noApply) {
+    Swal.fire('ℹ️ Not applicable', `${typeMeta.label} templates are referenced from an Infra request (initScript), not applied on their own.`, 'info');
+    return;
+  }
   const config = getConfig();
   const { hostname, port, username, password } = config;
   const authConfig = { username, password };
@@ -766,12 +781,23 @@ async function createTemplateDialog(namespace, type) {
           <label style="font-size:13px;font-weight:500;">Description</label>
           <input id="newTmplDesc" class="swal2-input" placeholder="Template description" style="margin:4px 0;width:100%;font-size:14px;">
         </div>
+        ${typeMeta.rawScript ? `
+        <div style="margin-bottom:8px;">
+          <label style="font-size:13px;font-weight:500;">Scripts (bash, run in order) <span style="color:red;">*</span></label>
+          <div id="newTmplSteps"></div>
+          <button type="button" id="newTmplAddStep" class="btn btn-sm btn-outline-secondary" style="margin-top:4px;">➕ Add step</button>
+        </div>` : `
         <div style="margin-bottom:8px;">
           <label style="font-size:13px;font-weight:500;">${typeMeta.label} Request Body (JSON) <span style="color:red;">*</span></label>
           <textarea id="newTmplBody" class="swal2-textarea" rows="12" 
             style="margin:4px 0;width:100%;font-size:12px;font-family:monospace;min-height:200px;resize:vertical;"
             placeholder='${(typeMeta.placeholder || '{}').replace(/'/g, "&#39;")}'></textarea>
-        </div>
+        </div>`}
+        ${typeMeta.rawScript ? `
+        <div style="margin-bottom:8px;">
+          <label style="font-size:13px;font-weight:500;">Default env <span style="color:#94a3b8;font-size:11px;">(KEY=VALUE, comma separated; the Infra request can override)</span></label>
+          <input id="newTmplEnv" class="swal2-input" placeholder="ROLE=demo" style="margin:4px 0;width:100%;font-size:13px;">
+        </div>` : ''}
       </div>
     `,
     focusConfirm: false,
@@ -779,6 +805,27 @@ async function createTemplateDialog(namespace, type) {
     confirmButtonText: '➕ Create Template',
     confirmButtonColor: '#007bff',
     width: '650px',
+    didOpen: () => {
+      if (!typeMeta.rawScript) return;
+      const addStep = () => {
+        const box = document.getElementById('newTmplSteps');
+        const n = box.children.length + 1;
+        const row = document.createElement('div');
+        row.className = 'tmpl-step';
+        row.style.cssText = 'border:1px solid #e2e8f0;border-radius:6px;padding:6px;margin-top:6px;';
+        row.innerHTML = `<div style="display:flex;gap:6px;align-items:center;">
+            <span style="font-size:12px;color:#64748b;">step ${n}</span>
+            <input class="tmpl-step-name swal2-input" placeholder="name (optional)" style="margin:0;flex:1;font-size:12px;height:28px;padding:2px 6px;">
+            ${n > 1 ? '<button type="button" class="btn btn-sm btn-outline-danger tmpl-step-del" title="Remove">🗑️</button>' : ''}
+          </div>
+          <textarea class="tmpl-step-script swal2-textarea" rows="6" style="margin:4px 0 0;width:100%;font-size:12px;font-family:monospace;min-height:90px;resize:vertical;"
+            placeholder='${(typeMeta.placeholder || '').replace(/'/g, "&#39;")}'></textarea>`;
+        row.querySelector('.tmpl-step-del')?.addEventListener('click', () => row.remove());
+        box.appendChild(row);
+      };
+      addStep();
+      document.getElementById('newTmplAddStep')?.addEventListener('click', addStep);
+    },
     preConfirm: () => {
       const name = document.getElementById('newTmplName')?.value?.trim();
       const desc = document.getElementById('newTmplDesc')?.value?.trim() || '';
@@ -787,9 +834,32 @@ async function createTemplateDialog(namespace, type) {
         Swal.showValidationMessage('Template name is required');
         return false;
       }
-      if (!bodyStr) {
+      if (!typeMeta.rawScript && !bodyStr) {
         Swal.showValidationMessage('Request body JSON is required');
         return false;
+      }
+      const reqPayload = { name: name, description: desc };
+      if (typeMeta.rawScript) {
+        reqPayload.scripts = [];
+        for (const row of document.querySelectorAll('#newTmplSteps .tmpl-step')) {
+          const script = (row.querySelector('.tmpl-step-script')?.value || '').trim();
+          const stepName = (row.querySelector('.tmpl-step-name')?.value || '').trim();
+          if (!script) { Swal.showValidationMessage('Every step needs a script'); return false; }
+          const step = { script: script.endsWith('\n') ? script : script + '\n' };
+          if (stepName) step.name = stepName;
+          reqPayload.scripts.push(step);
+        }
+        if (reqPayload.scripts.length === 0) { Swal.showValidationMessage('At least one script is required'); return false; }
+        const envText = (document.getElementById('newTmplEnv')?.value || '').trim();
+        if (envText) {
+          reqPayload.env = {};
+          for (const pair of envText.split(',')) {
+            const idx = pair.indexOf('=');
+            if (idx < 1) { Swal.showValidationMessage(`Invalid env entry "${pair.trim()}": use KEY=VALUE`); return false; }
+            reqPayload.env[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+          }
+        }
+        return reqPayload;
       }
       let bodyJson;
       try {
@@ -798,7 +868,6 @@ async function createTemplateDialog(namespace, type) {
         Swal.showValidationMessage('Invalid JSON: ' + e.message);
         return false;
       }
-      const reqPayload = { name: name, description: desc };
       reqPayload[typeMeta.bodyFieldName] = bodyJson;
       return reqPayload;
     }
@@ -921,6 +990,13 @@ async function loadTemplateToInfraConfig(namespace, templateId) {
   // Clear existing configuration
   clearCircle('');
 
+  // Infra-level settings of the template (init script, SG/vNet templates, post commands, ...) are not part of
+  // the node configs; keep them so createInfra() can put them back into the request
+  const infraLevel = {};
+  ['description', 'installMonAgent', 'sgTemplateId', 'vNetTemplateId', 'initScript', 'postCommands', 'postCommandAsync', 'policyOnPartialFailure']
+    .forEach(k => { if (infraReq[k] !== undefined && infraReq[k] !== '' && infraReq[k] !== null) infraLevel[k] = infraReq[k]; });
+  window.infraConfigFromTemplate = Object.keys(infraLevel).length ? { templateId: templateId, settings: infraLevel } : null;
+
   // Helper to run async task thunks with bounded concurrency while preserving order
   async function runWithConcurrency(tasks, limit = 6) {
     const results = new Array(tasks.length);
@@ -956,6 +1032,8 @@ async function loadTemplateToInfraConfig(namespace, templateId) {
     if (sg.label && Object.keys(sg.label).length > 0) {
       nodeConfig.label = sg.label;
     }
+    // NodeGroup-level overrides travel with the node config so the request keeps them
+    ['sgTemplateId', 'vNetTemplateId', 'initScript'].forEach(k => { if (sg[k] !== undefined && sg[k] !== '') nodeConfig[k] = sg[k]; });
     nodeGroupRequestFromSpecList.push(nodeConfig);
 
     // Fetch spec details if specId is available
@@ -1078,6 +1156,7 @@ async function loadTemplateToInfraConfig(namespace, templateId) {
       position: 'bottom-end',
       icon: 'success',
       title: `Template "${window.escapeHtml(templateId)}" loaded to Provision panel`,
+      footer: window.infraConfigFromTemplate ? `Also carried: ${Object.keys(window.infraConfigFromTemplate.settings).filter(k => k !== 'description').join(', ') || 'description'}` : undefined,
       showConfirmButton: false,
       timer: 3000,
       timerProgressBar: true
