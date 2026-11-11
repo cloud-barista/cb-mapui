@@ -268,6 +268,26 @@ window.copyGuiSshCommand = function(idx) {
 };
 
 // Builds the node-by-nodeGroup summary HTML block (shared by status + dynamic result views)
+// One secondary line under a node's lifecycle badge for its first-boot init script, in the same
+// vocabulary as the map label: "init waiting", "init 2/3: nginx", "init done", "init ✗ nginx".
+function initScriptRefHtml(nd, esc) {
+  const st = nd.initScriptStatus;
+  if (!st) return '';
+  const msg = nd.initScriptMessage || '';
+  const line = (text, color, tip) => `<div style="font-size:11px;margin-top:2px;color:${color};white-space:nowrap;" title="${esc(tip)}">${text}</div>`;
+  if (st === 'ok') return line('init done', '#16a34a', 'first-boot init script completed');
+  if (st === 'pending') return line('init waiting', '#94a3b8', 'the node has not reported yet (still booting, or no notifier)');
+  if (st === 'initializing') {
+    const m = /^initializing: (\S+) \((\d+)\/(\d+)\)/.exec(msg);
+    return line(m ? `init ${m[2]}/${m[3]}: ${esc(m[1])}` : 'init …', '#0369a1', msg || 'init script running');
+  }
+  if (st === 'fail') {
+    const step = msg.includes(' exit ') ? msg.split(' exit ')[0] : '';
+    return line(`init ✗${step ? ' ' + esc(step) : ''}`, '#dc2626', msg || 'init script failed');
+  }
+  return '';
+}
+
 function buildInfraNodeSummaryHtml(data) {
   const esc = window.escapeHtml || (s => String(s));
   const nodes = (window.getInfraNodes ? window.getInfraNodes(data) : null) || data.node || [];
@@ -366,6 +386,20 @@ function buildInfraNodeSummaryHtml(data) {
     html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">`;
     pills.forEach(p => { html += `<span style="background:${p.color};color:white;padding:3px 12px;border-radius:12px;font-size:12px;font-weight:600;font-family:${SANS};">${p.label}: ${p.count}</span>`; });
     html += `</div>`;
+  }
+
+  // ── Init script results (shown once at least one node has reported) ──
+  const initCount = st => nodes.filter(nd => nd.initScriptStatus === st).length;
+  const initOk = initCount('ok'), initFail = initCount('fail'), initRunning = initCount('initializing'), initPending = initCount('pending');
+  if (initOk + initFail + initRunning + initPending > 0) {
+    const parts = [];
+    if (initOk) parts.push(`<b style="color:#16a34a;">${initOk} done</b>`);
+    if (initRunning) parts.push(`<b style="color:#0369a1;">${initRunning} initializing</b>`);
+    if (initPending) parts.push(`<b style="color:#94a3b8;">${initPending} waiting</b>`);
+    if (initFail) parts.push(`<b style="color:#dc2626;">${initFail} failed</b>`);
+    html += `<div style="font-size:12px;color:#64748b;margin:-4px 0 12px;font-family:${SANS};" title="first-boot init script progress, reported by each node (waiting: no report yet)">
+      init script: ${parts.join(' · ')}
+    </div>`;
   }
 
   // ── Creation errors ──
@@ -596,9 +630,12 @@ function buildInfraNodeSummaryHtml(data) {
       const monIcon = nd.monAgentStatus === 'installed' ? '📡✓' : nd.monAgentStatus === 'failed' ? '📡✗' : '';
       const netIcon = nd.networkAgentStatus === 'installed' ? '🔗✓' : nd.networkAgentStatus === 'failed' ? '🔗✗' : '';
       const agentIcons = [monIcon, netIcon].filter(Boolean).join(' ');
+      // Init script progress is reference information next to the lifecycle status (reported by the node itself)
+      const initRef = initScriptRefHtml(nd, esc);
       const statusCell = getInfraStatusBadge(nd.status)
         + (agentIcons ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px;">${agentIcons}</span>` : '')
-        + (nd.targetAction && nd.targetAction !== 'None' ? `<div style="font-size:11px;color:#d97706;margin-top:2px;">⏳${esc(nd.targetAction)}</div>` : '');
+        + (nd.targetAction && nd.targetAction !== 'None' ? `<div style="font-size:11px;color:#d97706;margin-top:2px;">⏳${esc(nd.targetAction)}</div>` : '')
+        + initRef;
 
       const cspId = nd.cspResourceId || nd.cspResourceName || '-';
       const cspIdShort = cspId.length > 28 ? cspId.slice(0, 26) + '…' : cspId;
@@ -687,12 +724,13 @@ function displayInfraStatusGui(data) {
     ? `<p style="color:#64748b;font-size:12px;margin:0 0 12px;line-height:1.6;">${metaItems.join(' &nbsp;·&nbsp; ')}</p>`
     : '';
 
+  const renderLive = (d) => `${metaHtml}${buildInfraNodeSummaryHtml(d)}`;
   Swal.fire({
     title: `📊 Infra Status: ${esc(infraId)}`,
     html: `
       <div style="text-align:left;color:#0f172a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;">
-        ${metaHtml}
-        ${buildInfraNodeSummaryHtml(data)}
+        <div id="infra-card-live">${renderLive(data)}</div>
+        <div id="infra-card-live-note" style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;"></div>
         <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
           ${(data.statusCount?.countFailed > 0) ? `
           <button type="button" onclick="reviewRetryFailedNodes('${esc(infraId)}')"
@@ -715,7 +753,48 @@ function displayInfraStatusGui(data) {
     showCancelButton: true,
     cancelButtonText: '✕ Close',
     width: '90%',
+    didOpen: () => startInfraCardLiveRefresh(infraId, data, renderLive),
+    willClose: stopInfraCardLiveRefresh,
   });
+}
+
+// ── Live refresh of an open Infra popup ──────────────────────────────────────
+// The popup is rendered from one GET; while it stays open the node section is re-fetched and re-rendered in
+// place so lifecycle status and init script progress follow along. Larger Infras poll less often.
+let _infraCardTimer = null;
+function stopInfraCardLiveRefresh() {
+  if (_infraCardTimer) { clearInterval(_infraCardTimer); _infraCardTimer = null; }
+}
+function startInfraCardLiveRefresh(infraId, initial, renderLive) {
+  stopInfraCardLiveRefresh();
+  const cfg = getConfig();
+  const ns = window.configNamespace || cfg.namespace;
+  const auth = { username: window.configUsername || cfg.username, password: window.configPassword || cfg.password };
+  if (!ns || !infraId) return;
+  const nodeCount = ((window.getInfraNodes ? window.getInfraNodes(initial) : null) || initial.node || []).length;
+  const period = nodeCount > 2000 ? 15000 : (nodeCount > 500 ? 10000 : 5000);
+  const note = () => document.getElementById('infra-card-live-note');
+  if (note()) note().textContent = `↻ auto-refresh every ${period / 1000}s`;
+  let busy = false;
+  _infraCardTimer = setInterval(async () => {
+    const el = document.getElementById('infra-card-live');
+    if (!el) { stopInfraCardLiveRefresh(); return; }
+    if (busy) return;
+    busy = true;
+    try {
+      const res = await axios.get(`${tbApiBase()}/ns/${ns}/infra/${infraId}`, { auth, timeout: 30000 });
+      const fresh = res.data;
+      window._currentJsonOutput = fresh;
+      window._currentJsonString = JSON.stringify(fresh, null, 2);
+      const live = document.getElementById('infra-card-live');
+      if (live) live.innerHTML = renderLive(fresh);
+      if (note()) note().textContent = `↻ auto-refresh every ${period / 1000}s · updated ${new Date().toLocaleTimeString()}`;
+    } catch (e) {
+      if (note()) note().textContent = `↻ auto-refresh paused: ${e.response?.data?.message || e.message}`;
+    } finally {
+      busy = false;
+    }
+  }, period);
 }
 
 // ── Retry of failed Nodes ────────────────────────────────────────────────────
@@ -1344,8 +1423,8 @@ function displayInfraDynamicResultGui(data) {
             ${runningCount} / ${nodes.length} node(s) running${data.description ? '  ·  ' + esc(data.description) : ''}
           </p>
         </div>
-        ${buildPostCommandStatusHtml(data)}
-        ${buildInfraNodeSummaryHtml(data)}
+        <div id="infra-card-live">${buildPostCommandStatusHtml(data)}${buildInfraNodeSummaryHtml(data)}</div>
+        <div id="infra-card-live-note" style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;"></div>
         <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap;">
           <button type="button" onclick="downloadAllSshKeys(window._currentInfraId)"
             style="padding:7px 18px;font-size:13px;font-family:inherit;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;letter-spacing:0.01em;">
@@ -1363,6 +1442,8 @@ function displayInfraDynamicResultGui(data) {
     showCancelButton: true,
     cancelButtonText: '✕ Close',
     width: '90%',
+    didOpen: () => startInfraCardLiveRefresh(infraId, data, (d) => `${buildPostCommandStatusHtml(d)}${buildInfraNodeSummaryHtml(d)}`),
+    willClose: stopInfraCardLiveRefresh,
   });
 }
 

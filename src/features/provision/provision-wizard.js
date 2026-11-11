@@ -1573,6 +1573,10 @@ function createInfra() {
     var createInfraReq = JSON.parse(JSON.stringify(createInfraReqTmplt));
     createInfraReq.name = "mc-" + generateInfraName();
     createInfraReq.nodeGroups = Array.from(nodeGroupRequestFromSpecList);
+    // Settings loaded from an Infra template (init script, SG/vNet templates, post commands, ...)
+    if (window.infraConfigFromTemplate?.settings) {
+      Object.assign(createInfraReq, JSON.parse(JSON.stringify(window.infraConfigFromTemplate.settings)));
+    }
     let totalCost = 0;
     let totalNodeScale = 0;
 
@@ -1697,22 +1701,35 @@ function showFinalInfraConfirmation(createInfraReq, url, totalCost, totalNodeSca
       costDetailsHtml +
       "<hr>" +
       nodeGroupReqString +
+      templateSettingsHtml(createInfraReq) +
       "<br><br><input type='checkbox' id='hold-checkbox'> Hold Node provisioning of the Infra" +
       "<br><input type='checkbox' id='monitoring-checkbox'> Deploy a monitoring agent" +
-      "<br><input type='checkbox' id='postcommand-checkbox'> Add post-deployment commands",
+      "<br><input type='checkbox' id='postcommand-checkbox'> Add post-deployment commands" +
+      "</font>" + initScriptSectionHtml(),
     showCancelButton: true,
     confirmButtonText: "Confirm",
     scrollbarPadding: false,
+    didOpen: () => loadInitScriptTemplateOptions().then(() => {
+      prefillInitScriptForm(createInfraReq.initScript);
+      window._initScriptFormSnapshot = JSON.stringify(collectInitScript() ?? null);
+    }),
     preConfirm: () => {
+      const collected = collectInitScript();
+      if (collected === false) return false;
+      // An untouched form keeps the loaded initScript as is (it may hold inline steps the form cannot show)
+      const untouched = JSON.stringify(collected ?? null) === window._initScriptFormSnapshot;
       return {
         monitoring: document.getElementById('monitoring-checkbox').checked,
         hold: document.getElementById('hold-checkbox').checked,
-        addPostCommand: document.getElementById('postcommand-checkbox').checked
+        addPostCommand: document.getElementById('postcommand-checkbox').checked,
+        initScript: untouched ? createInfraReq.initScript : collected,
       };
     }
   }).then((result) => {
     if (result.isConfirmed) {
       createInfraReq.installMonAgent = "no";
+      if (result.value.initScript) createInfraReq.initScript = result.value.initScript;
+      else delete createInfraReq.initScript;
       if (result.value.monitoring) {
         Swal.fire("Create Infra with a monitoring agent");
         createInfraReq.installMonAgent = "yes";
@@ -1753,6 +1770,120 @@ function showFinalInfraConfirmation(createInfraReq, url, totalCost, totalNodeSca
       }
     }
   });
+}
+
+// ---- Init script (first boot) section of the final confirmation ----
+// Leaving everything at its default keeps the request without initScript, which CB-Tumblebug
+// treats as "mode default": the cb-user account is created and the node reports when it has booted.
+function initScriptSectionHtml() {
+  return `
+    <div style="text-align:left;margin-top:14px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;font-size:13px;">
+      <div style="font-weight:700;margin-bottom:6px;">🧩 Init script (first boot)</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+        <label style="margin:0;">Mode
+          <select id="initScriptMode" class="swal2-select" style="margin:0 0 0 4px;font-size:13px;padding:3px 6px;">
+            <option value="default" selected>default (create cb-user, run steps)</option>
+            <option value="custom">custom (steps only, keep image account)</option>
+            <option value="none">none (CB-Spider default user data)</option>
+          </select>
+        </label>
+        <label style="margin:0;">User
+          <input id="initScriptUser" class="swal2-input" value="cb-user" style="margin:0 0 0 4px;width:110px;font-size:13px;height:30px;padding:2px 6px;">
+        </label>
+        <label style="margin:0;"><input type="checkbox" id="initScriptNotify" checked> report result to notifier</label>
+      </div>
+      <div style="margin-bottom:6px;">
+        <label style="margin:0;display:block;">Template <span style="color:#94a3b8;font-size:11px;">(its scripts run first, in order; from this namespace and system)</span></label>
+        <select id="initScriptTemplate" style="width:100%;font-size:12px;font-family:monospace;">
+          <option value="">(none: account only)</option>
+        </select>
+      </div>
+      <details>
+        <summary style="cursor:pointer;color:#475569;font-size:12px;">Inline script and environment variables</summary>
+        <textarea id="initScriptInline" rows="4" placeholder="#!/bin/bash&#10;# runs after the template's scripts" style="width:100%;font-family:monospace;font-size:12px;margin-top:6px;"></textarea>
+        <input id="initScriptEnv" class="swal2-input" placeholder="ROLE=web, OTEL_ENDPOINT=https://otel.example.com" style="margin:6px 0 0;width:100%;font-size:12px;height:30px;padding:2px 6px;">
+      </details>
+    </div>`;
+}
+
+// Lines for settings that came from a loaded Infra template, so the user sees them before confirming
+function templateSettingsHtml(req) {
+  const src = window.infraConfigFromTemplate;
+  const items = [];
+  if (req.sgTemplateId) items.push(`SG template: <b>${req.sgTemplateId}</b>`);
+  if (req.vNetTemplateId) items.push(`vNet template: <b>${req.vNetTemplateId}</b>`);
+  if (req.postCommands?.length) items.push(`post-deployment commands: <b>${req.postCommands.length} phase(s)</b>`);
+  if (req.installMonAgent === 'yes') items.push('monitoring agent: <b>yes</b>');
+  if (items.length === 0) return '';
+  return `<div style="text-align:left;margin-top:10px;font-size:13px;color:#475569;">📋 From template${src ? ` <b>${src.templateId}</b>` : ''}: ${items.join(' · ')}</div>`;
+}
+
+// Fills the init script form from a request (e.g. loaded from an Infra template)
+function prefillInitScriptForm(is) {
+  if (!is) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('initScriptMode', is.mode || 'default');
+  set('initScriptUser', is.userName || 'cb-user');
+  const notify = document.getElementById('initScriptNotify'); if (notify) notify.checked = is.notify !== false;
+  set('initScriptTemplate', is.templateId || '');
+  set('initScriptInline', is.script || '');
+  set('initScriptEnv', Object.entries(is.env || {}).map(([k, v]) => `${k}=${v}`).join(', '));
+  const details = document.querySelector('#initScriptInline')?.closest('details');
+  if (details && (is.script || is.env)) details.open = true;
+}
+
+async function loadInitScriptTemplateOptions() {
+  const sel = document.getElementById('initScriptTemplate');
+  if (!sel) return;
+  const cfg = getConfig();
+  const auth = { username: window.configUsername || cfg.username, password: window.configPassword || cfg.password };
+  const ns = window.configNamespace || cfg.namespace || 'default';
+  const sources = ns === 'system' ? ['system'] : [ns, 'system'];
+  const seen = new Set();
+  const options = [];
+  for (const source of sources) {
+    try {
+      const res = await axios.get(`${tbApiBase()}/ns/${source}/template/initScript`, { auth });
+      (res.data.templates || []).forEach(t => {
+        if (seen.has(t.id)) return; // a namespace template shadows the system one of the same id
+        seen.add(t.id);
+        const steps = (t.scripts || []).length;
+        options.push(`<option value="${t.id}" title="${(t.description || '').replace(/"/g, '&quot;')}">${t.id}  (${steps} step${steps === 1 ? '' : 's'}${source === 'system' ? ', system' : ''})</option>`);
+      });
+    } catch (e) { /* namespace may have none */ }
+  }
+  sel.innerHTML = '<option value="">(none: account only)</option>' + options.join('');
+}
+
+// Returns undefined for the implicit default, an initScript object otherwise, or false after a validation message.
+function collectInitScript() {
+  const mode = document.getElementById('initScriptMode')?.value || 'default';
+  const userName = (document.getElementById('initScriptUser')?.value || '').trim();
+  const notify = document.getElementById('initScriptNotify')?.checked !== false;
+  const templateId = document.getElementById('initScriptTemplate')?.value || '';
+  const inline = (document.getElementById('initScriptInline')?.value || '').trim();
+  const envText = (document.getElementById('initScriptEnv')?.value || '').trim();
+  if (mode === 'none') return { mode: 'none' };
+  const req = {};
+  if (mode !== 'default') req.mode = mode;
+  if (userName && userName !== 'cb-user') req.userName = userName;
+  if (templateId) req.templateId = templateId;
+  if (inline) req.script = inline.endsWith('\n') ? inline : inline + '\n';
+  if (envText) {
+    const env = {};
+    for (const pair of envText.split(',')) {
+      const idx = pair.indexOf('=');
+      const k = pair.slice(0, idx).trim(), v = pair.slice(idx + 1).trim();
+      if (idx < 1 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || k.startsWith('TB_') || /['\n]/.test(v)) {
+        Swal.showValidationMessage(`Invalid env entry "${pair.trim()}": use KEY=VALUE, no TB_ prefix, no quotes`);
+        return false;
+      }
+      env[k] = v;
+    }
+    req.env = env;
+  }
+  if (!notify) req.notify = false;
+  return Object.keys(req).length > 0 ? req : undefined;
 }
 
 // Infra Creation execution

@@ -294,8 +294,11 @@ const NODEGROUP_CHIP_PAD_Y = 3;
 // drawObjects ignores Text.backgroundFill/padding, so the chip is a cached
 // canvas drawn once per label text and handed to OpenLayers as an Icon.
 const nodeGroupChipCache = new globalThis.Map(); // "text|r,g,b" -> Icon
-function getNodeGroupLabelChip(text, borderRgb) {
-  const key = text + '|' + borderRgb.join(',');
+function getNodeGroupLabelChip(text, borderRgb, opts = {}) {
+  const font = opts.font || NODEGROUP_LABEL_FONT;
+  const fontPx = opts.fontPx || NODEGROUP_LABEL_FONT_PX;
+  const offsetPx = opts.offsetPx || NODEGROUP_LABEL_OFFSET_PX;
+  const key = text + '|' + borderRgb.join(',') + '|' + font + '|' + offsetPx;
   let icon = nodeGroupChipCache.get(key);
   if (icon) return icon;
   if (nodeGroupChipCache.size > 500) nodeGroupChipCache.clear();
@@ -304,9 +307,9 @@ function getNodeGroupLabelChip(text, borderRgb) {
   const border = 1.5, radius = 6;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  ctx.font = NODEGROUP_LABEL_FONT;
+  ctx.font = font;
   const w = Math.ceil(ctx.measureText(text).width) + NODEGROUP_CHIP_PAD_X * 2;
-  const h = NODEGROUP_LABEL_FONT_PX + NODEGROUP_CHIP_PAD_Y * 2 + 2;
+  const h = fontPx + NODEGROUP_CHIP_PAD_Y * 2 + 2;
   canvas.width = (w + border * 2) * ratio;
   canvas.height = (h + border * 2) * ratio;
   ctx.scale(ratio, ratio);
@@ -334,10 +337,37 @@ function getNodeGroupLabelChip(text, borderRgb) {
     anchor: [0.5, 0],          // top-centre of the chip sits on the anchor point...
     anchorXUnits: 'fraction',
     anchorYUnits: 'fraction',
-    displacement: [0, -NODEGROUP_LABEL_OFFSET_PX], // ...then shifted down below the Node icon
+    displacement: [0, -offsetPx], // ...then shifted down below the Node icon
   });
   nodeGroupChipCache.set(key, icon);
   return icon;
+}
+
+// Init script progress above a Node, in the same typography as the Infra name/status labels
+// (bold 10px, white outline). Nothing else is drawn above a Node, so it never collides with the
+// NodeGroup label or the Infra label below.
+const INIT_LABEL_OFFSET_PX = 22; // clears the icon's upper half (~19px)
+const INIT_LABEL_LINE_PX = 15;   // line pitch for the 13px font
+function drawInitLabel(vectorContext, point, label) {
+  const failed = label.includes('✗');
+  const color = failed ? [185, 28, 28, 1] : (label === 'init waiting' ? [100, 116, 139, 1] : [3, 105, 161, 1]);
+  // The immediate renderer draws one line per Text style (like the Infra labels), so stack the
+  // lines upward from the anchor: the last line sits just above the icon
+  const lines = label.split('\n');
+  lines.forEach((line, i) => {
+    vectorContext.setStyle(new Style({
+      text: new Text({
+        text: line,
+        font: 'bold 13px sans-serif',
+        textAlign: 'center',
+        textBaseline: 'bottom',
+        offsetY: -(INIT_LABEL_OFFSET_PX + (lines.length - 1 - i) * INIT_LABEL_LINE_PX),
+        fill: new Fill({ color }),
+        stroke: new Stroke({ color: [255, 255, 255, 1], width: 2 }),
+      }),
+    }));
+    vectorContext.drawGeometry(point);
+  });
 }
 
 // Style for displaying node count suffix "(totalCount)" to the right of the rightmost node icon
@@ -1120,6 +1150,7 @@ function clearCircle(option) {
   window.latLonInputPairIdx = 0;
   nodeGroupRequestFromSpecList.length = 0;
   recommendedSpecList.length = 0;
+  window.infraConfigFromTemplate = null;
   window.nodeGroupRequestFromSpecList = nodeGroupRequestFromSpecList;
   window.recommendedSpecList = recommendedSpecList;
   renderMapFromConfig();
@@ -2084,7 +2115,26 @@ function makeTria(ip1, ip2, ip3) {
 }
 
 // Build Node dot geometry data for an Infra entry in infraRenderMap
-function makePolyDot(infraEntry, nodePoints, nodeStatuses = [], nodeProviders = [], nodeCommandStatuses = [], overLimitLabels = [], nodeCenterFlags = []) {
+// Short init script line drawn above a node until its first-boot init script is done: "init waiting"
+// (expected to report, nothing yet), "init 2/3: nginx", "init ✗ nginx". Empty once done or when not applicable.
+function initScriptMapLabel(nd) {
+  const st = nd.initScriptStatus;
+  if (st === 'pending') return 'init waiting';
+  if (st !== 'initializing' && st !== 'fail') return '';
+  const steps = Array.isArray(nd.initScriptSteps) ? nd.initScriptSteps : [];
+  const msg = nd.initScriptMessage || '';
+  const short = (n) => n.length > 14 ? n.slice(0, 13) + '…' : n;
+  // two lines: progress on top, step name below
+  if (st === 'fail') {
+    const failed = msg.includes(' exit ') ? msg.split(' exit ')[0] : '';
+    return failed ? `init ✗\n${short(failed)}` : 'init ✗';
+  }
+  const m = /^initializing: (\S+) \((\d+)\/(\d+)\)/.exec(msg);
+  if (m) return `init ${m[2]}/${m[3]}\n${short(m[1])}`;
+  return steps.length ? `init 1/${steps.length}` : 'init …';
+}
+
+function makePolyDot(infraEntry, nodePoints, nodeStatuses = [], nodeProviders = [], nodeCommandStatuses = [], overLimitLabels = [], nodeCenterFlags = [], nodeInitLabels = []) {
   var resourcePoints = [];
   for (i = 0; i < nodePoints.length; i++) {
     resourcePoints.push(nodePoints[i]);
@@ -2096,7 +2146,8 @@ function makePolyDot(infraEntry, nodePoints, nodeStatuses = [], nodeProviders = 
     nodeProviders: nodeProviders,
     nodeCommandStatuses: nodeCommandStatuses,
     overLimitLabels: overLimitLabels,
-    nodeCenterFlags: nodeCenterFlags
+    nodeCenterFlags: nodeCenterFlags,
+    nodeInitLabels: nodeInitLabels
   };
 }
 
@@ -2788,6 +2839,7 @@ function getInfra() {
             var nodeStatuses = [];
             var nodeProviders = [];
             var nodeCommandStatuses = [];
+            const nodeInitLabels = [];
             var nodePoints = [];
             var nodeCenterFlags = [];
             var validateNum = 0;
@@ -2891,6 +2943,7 @@ function getInfra() {
                 });
               }
               nodeCommandStatuses.push(commandStatus);
+              nodeInitLabels.push(initScriptMapLabel(nd));
 
               let provider = "unknown";
               if (nd.connectionConfig && nd.connectionConfig.providerName) {
@@ -2949,7 +3002,7 @@ function getInfra() {
               };
 
               // Build Node dots and polygon geometry into the entry
-              makePolyDot(infraEntry, vmGeo, nodeStatuses, nodeProviders, nodeCommandStatuses, overLimitLabels, nodeCenterFlags);
+              makePolyDot(infraEntry, vmGeo, nodeStatuses, nodeProviders, nodeCommandStatuses, overLimitLabels, nodeCenterFlags, nodeInitLabels);
               // convexHull sorts in-place; pass a copy so vmGeo (stored in
               // geometryPoints.nodePoints by reference) keeps the original
               // item.node order aligned with nodeProviders/nodeStatuses.
@@ -3742,7 +3795,7 @@ function drawObjects(event) {
     
     // Check if geometryPoint has the new structure with Node data
     if (geometryPoint && typeof geometryPoint === 'object' && geometryPoint.geometry) {
-      const { geometry, nodePoints, nodeStatuses, nodeProviders, nodeCommandStatuses, overLimitLabels, nodeCenterFlags } = geometryPoint;
+      const { geometry, nodePoints, nodeStatuses, nodeProviders, nodeCommandStatuses, overLimitLabels, nodeCenterFlags, nodeInitLabels } = geometryPoint;
       const vmBaseScale = changeSizeStatus(data.name + data.status);
       
       if (nodePoints && nodeStatuses) {
@@ -3753,12 +3806,14 @@ function drawObjects(event) {
             const vmPoint = new Point(nodeCoords);
             const vmProvider = nodeProviders ? nodeProviders[nodeIndex] : null;
             const commandStatus = nodeCommandStatuses ? nodeCommandStatuses[nodeIndex] : "None";
+            const initLabel = nodeInitLabels ? nodeInitLabels[nodeIndex] : '';
             const vmStyles = createNodeStyleWithStatusBadge(nodeStatus, vmProvider, vmBaseScale, nodeCoords, commandStatus);
             
             vmStyles.forEach(style => {
               vectorContext.setStyle(style);
               vectorContext.drawGeometry(vmPoint);
             });
+            if (initLabel) drawInitLabel(vectorContext, vmPoint, initLabel);
           }
         };
 
