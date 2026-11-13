@@ -38,7 +38,7 @@ const state = { info: null, readers: [], messages: [], zones: [], busy: '' };
 async function load() {
   try {
     const r = await axios.get(api(), { ...auth(), timeout: 15000 });
-    state.info = r.data;
+    state.info = r.status === 204 || !r.data ? null : r.data; // 204: nothing registered
   } catch (e) {
     state.info = null;
     if (e?.response?.status !== 404) console.warn('[Notifier] load failed:', errMsg(e));

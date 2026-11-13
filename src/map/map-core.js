@@ -350,7 +350,7 @@ const INIT_LABEL_OFFSET_PX = 22; // clears the icon's upper half (~19px)
 const INIT_LABEL_LINE_PX = 15;   // line pitch for the 13px font
 function drawInitLabel(vectorContext, point, label) {
   const failed = label.includes('✗');
-  const color = failed ? [185, 28, 28, 1] : (label === 'init waiting' ? [100, 116, 139, 1] : [3, 105, 161, 1]);
+  const color = failed ? [185, 28, 28, 1] : ((label === 'init waiting' || label === 'init no report') ? [100, 116, 139, 1] : [3, 105, 161, 1]);
   // The immediate renderer draws one line per Text style (like the Infra labels), so stack the
   // lines upward from the anchor: the last line sits just above the icon
   const lines = label.split('\n');
@@ -2120,6 +2120,7 @@ function makeTria(ip1, ip2, ip3) {
 function initScriptMapLabel(nd) {
   const st = nd.initScriptStatus;
   if (st === 'pending') return 'init waiting';
+  if (st === 'noReport') return 'init no report';
   if (st !== 'initializing' && st !== 'fail') return '';
   const steps = Array.isArray(nd.initScriptSteps) ? nd.initScriptSteps : [];
   const msg = nd.initScriptMessage || '';

@@ -42,6 +42,7 @@ import './features/autopilot/autopilot.js';
 import './features/object-storage/object-storage-mgr.js';
 import './features/rdbms/rdbms-mgr.js';
 import './features/notifier/notifier-mgr.js';
+import './features/observability/observability-mgr.js';
 
 // 5. Topology Views
 import './features/topology/resource-graph.js';

@@ -1115,25 +1115,24 @@ function setDefaultRemoteCommandsByApp(appName) {
       break;
     case "vLLMServe":
       // Serve an LLM model with vLLM (must install vLLM first via Deploy vLLM step)
-      // Optional flags (hf-token, gpu-util, ctx-len) are only passed when non-empty
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/servevLLM.sh -o /tmp/servevLLM.sh && MODEL=\"<VLLM_MODEL>\"; HF_TOKEN=\"<VLLM_HF_TOKEN>\"; GPU_UTIL=\"<VLLM_GPU_UTIL>\"; CTX_LEN=\"<VLLM_CTX_LEN>\"; ARGS=(--model \"$MODEL\"); [ -n \"$HF_TOKEN\" ] && ARGS+=(--hf-token \"$HF_TOKEN\"); [ -n \"$GPU_UTIL\" ] && ARGS+=(--gpu-util \"$GPU_UTIL\"); [ -n \"$CTX_LEN\" ] && ARGS+=(--ctx-len \"$CTX_LEN\"); bash /tmp/servevLLM.sh \"${ARGS[@]}\"";
+      // Optional flags (hf-token, gpu-util, ctx-len, tool-parser) are only passed when non-empty
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/servevLLM.sh -o /tmp/servevLLM.sh && MODEL=\"<VLLM_MODEL>\"; HF_TOKEN=\"<VLLM_HF_TOKEN>\"; GPU_UTIL=\"<VLLM_GPU_UTIL>\"; CTX_LEN=\"<VLLM_CTX_LEN>\"; TOOL_PARSER=\"<VLLM_TOOL_PARSER>\"; ARGS=(--model \"$MODEL\"); [ -n \"$HF_TOKEN\" ] && ARGS+=(--hf-token \"$HF_TOKEN\"); [ -n \"$GPU_UTIL\" ] && ARGS+=(--gpu-util \"$GPU_UTIL\"); [ -n \"$CTX_LEN\" ] && ARGS+=(--ctx-len \"$CTX_LEN\"); if [ \"$TOOL_PARSER\" = \"none\" ]; then ARGS+=(--no-tools); elif [ -n \"$TOOL_PARSER\" ]; then ARGS+=(--tool-parser \"$TOOL_PARSER\"); fi; bash /tmp/servevLLM.sh \"${ARGS[@]}\"";
       defaultRemoteCommand[1] = "echo 'API: $$Func(GetPublicIP(target=this, prefix=http://, postfix=:8000/v1))'";
       defaultRemoteCommand[2] = "";
       break;
     case "Nvidia":
-      // Install GPU driver — auto-detects NVIDIA or AMD at runtime
-      // Note: System will automatically reboot after installation
+      // Install GPU driver — auto-detects NVIDIA or AMD at runtime (skips reinstall/reboot if already active)
       // Use download-then-execute pattern (not curl|bash) to prevent truncated script execution
       defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installGpuDriver.sh -o /tmp/installGpuDriver.sh && bash /tmp/installGpuDriver.sh";
-      defaultRemoteCommand[1] = "echo '[INFO] GPU driver installation started (NVIDIA or AMD auto-detected). System will reboot automatically in ~5 seconds after completion.'";
-      defaultRemoteCommand[2] = "echo '[INFO] After reboot, verify with: nvidia-smi (NVIDIA) or rocm-smi (AMD)'";
+      defaultRemoteCommand[1] = "echo '[INFO] GPU driver check/install finished (skips reinstall & reboot if already active; reboots in ~5s if newly installed).'";
+      defaultRemoteCommand[2] = "echo '[INFO] Verify GPU status with: nvidia-smi (NVIDIA) or rocm-smi (AMD)'";
       break;
     case "NvidiaVgpu":
       // Install NVIDIA driver for fractional/vGPU instances (e.g., AWS g6f, Azure NCas fractional)
       // --vgpu flag forces proprietary driver (open kernel modules do NOT support vGPU)
       defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/installGpuDriver.sh -o /tmp/installGpuDriver.sh && bash /tmp/installGpuDriver.sh --vgpu";
-      defaultRemoteCommand[1] = "echo '[INFO] NVIDIA GPU driver (vGPU/proprietary) installation started. System will reboot automatically.'";
-      defaultRemoteCommand[2] = "echo '[INFO] After reboot, verify with: nvidia-smi'";
+      defaultRemoteCommand[1] = "echo '[INFO] NVIDIA GPU driver (vGPU/proprietary) check/install finished (reboots automatically if newly installed).'";
+      defaultRemoteCommand[2] = "echo '[INFO] Verify GPU status with: nvidia-smi'";
       break;
     case "RebootVM":
       // Reboot Node - useful after GPU driver installation
@@ -1242,8 +1241,8 @@ function setDefaultRemoteCommandsByApp(appName) {
     case "BenchmarkTarget":
       // All-in-one setup for benchmark target GPU VMs: vLLM + Model Serving + Telemetry Sensor
       // Assumes GPU driver is already installed (use 'Install GPU Driver' step first)
-      // --hf-token: only passed when non-empty (required for gated models; omit for public models)
-      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/setupBenchmarkTarget.sh -o /tmp/setupBenchmarkTarget.sh && MODEL=\"<VLLM_MODEL>\"; HF_TOKEN=\"<VLLM_HF_TOKEN>\"; ARGS=(--model \"$MODEL\"); [ -n \"$HF_TOKEN\" ] && ARGS+=(--hf-token \"$HF_TOKEN\"); bash /tmp/setupBenchmarkTarget.sh \"${ARGS[@]}\"";
+      // Optional flags (hf-token, gpu-util, ctx-len, tool-parser) are only passed when non-empty
+      defaultRemoteCommand[0] = "curl -fsSL https://raw.githubusercontent.com/cloud-barista/cb-tumblebug/main/scripts/usecases/llm/telemetry/setupBenchmarkTarget.sh -o /tmp/setupBenchmarkTarget.sh && MODEL=\"<VLLM_MODEL>\"; HF_TOKEN=\"<VLLM_HF_TOKEN>\"; GPU_UTIL=\"<VLLM_GPU_UTIL>\"; CTX_LEN=\"<VLLM_CTX_LEN>\"; TOOL_PARSER=\"<VLLM_TOOL_PARSER>\"; ARGS=(--model \"$MODEL\"); [ -n \"$HF_TOKEN\" ] && ARGS+=(--hf-token \"$HF_TOKEN\"); [ -n \"$GPU_UTIL\" ] && ARGS+=(--gpu-util \"$GPU_UTIL\"); [ -n \"$CTX_LEN\" ] && ARGS+=(--ctx-len \"$CTX_LEN\"); if [ \"$TOOL_PARSER\" = \"none\" ]; then ARGS+=(--no-tools); elif [ -n \"$TOOL_PARSER\" ]; then ARGS+=(--tool-parser \"$TOOL_PARSER\"); fi; bash /tmp/setupBenchmarkTarget.sh \"${ARGS[@]}\"";
       defaultRemoteCommand[1] = "echo 'API: $$Func(GetPublicIP(target=this, prefix=http://, postfix=:8000/v1))'";
       defaultRemoteCommand[2] = "echo 'Metrics: $$Func(GetPublicIP(target=this, prefix=http://, postfix=:9101/metrics))'";
       break;

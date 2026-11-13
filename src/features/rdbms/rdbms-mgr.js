@@ -489,7 +489,6 @@ const DEFAULT_BASTION_TEMPLATE = {
   name: 'infra-db-bastion',
   description: 'Multi-CSP DB Bastion template for secure in-VPC RDBMS access and testing across CSPs (pre-installed mysql/mariadb clients)',
   infraDynamicReq: {
-    installMonAgent: 'no',
     nodeGroups: [
       { name: 'g-aws', nodeGroupSize: 1, specId: 'aws+ap-northeast-2+t3.nano', imageId: 'ami-0fde5763b4c293a0b', rootDiskType: 'gp3', rootDiskSize: 30 },
       { name: 'g-azure', nodeGroupSize: 1, specId: 'azure+koreacentral+standard_b2ts_v2', imageId: 'Canonical:0001-com-ubuntu-minimal-jammy:minimal-22_04-lts-gen2:22.04.202607290', rootDiskType: 'default', rootDiskSize: 30 },
@@ -2739,7 +2738,6 @@ async function runBastionSetDeployInBackground(op, targets, selectedCsps, engine
       // 2. Create dedicated infraDynamic for this target
       const infraReq = {
         name: t.infraName,
-        installMonAgent: 'no',
         nodeGroups: [t.nodeGroup],
         postCommands: template.infraDynamicReq?.postCommands || [
           {

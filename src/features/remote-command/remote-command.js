@@ -96,10 +96,14 @@ window.resetCommands = function () {
   }
 
   console.log('Commands reset to 3 empty fields');
+  window._activeComposerScripts = [];
 
   // Re-render placeholder inputs to clear stale panels
   if (typeof window.renderPlaceholderInputs === 'function') {
     window.renderPlaceholderInputs();
+  }
+  if (typeof window.updateAppAccessPanel === 'function') {
+    window.updateAppAccessPanel();
   }
 };
 
@@ -214,35 +218,35 @@ window.PLACEHOLDER_METADATA = {
     secret: false,
   },
   // Hermes Agent uses vLLM — same VRAM rules as VLLM_MODEL.
-  // CTX_LEN default 65536 adds significant KV cache; prefer smaller models on 24 GB.
+  // CTX_LEN default 32768 fits 24 GB GPUs comfortably; increase to 65536+ on 80 GB GPUs.
   // Best for agents: Qwen2.5/3 (tool calling), Llama3.1/3.3 (built-in tool use), Phi-4-mini (compact agent).
   'HERMES_MODEL': {
-    description: 'LLM model for Hermes Agent (served via vLLM — pick a model that fits your GPU VRAM)',
-    hint: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8',
-    default: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8',
+    description: 'LLM model for Hermes Agent (served via vLLM — 🔒 presets require HF_TOKEN)',
+    hint: 'Qwen/Qwen2.5-7B-Instruct',
+    default: 'Qwen/Qwen2.5-7B-Instruct',
     secret: false,
     refs: [
       { label: 'HuggingFace Models', url: 'https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads' }
     ],
     presets: [
-      // ── 24 GB · L4 (Ampere, BF16 only) 
+      // ── 24 GB · L4 (Ada Lovelace, SM 8.9) 
       { label: '24GB · Phi-4-mini      (BF16≈8GB)',        value: 'microsoft/Phi-4-mini-instruct' },
       { label: '24GB · Qwen3-8B        (BF16≈16GB)',       value: 'Qwen/Qwen3-8B' },
       { label: '24GB · Qwen2.5-7B      (BF16≈14GB)',       value: 'Qwen/Qwen2.5-7B-Instruct' },
-      // ── 24 GB · L40S (Ada Lovelace, FP8 supported) 
-      { label: '24GB · Qwen2.5-14B     (FP8≈14GB, L40S)',  value: 'Qwen/Qwen2.5-14B-Instruct' },
-      { label: '24GB · Qwen3-14B       (FP8≈14GB, L40S)',  value: 'Qwen/Qwen3-14B' },
+      // ── 48 GB · L40S (Ada Lovelace, FP8 supported) 
+      { label: '48GB · Qwen2.5-14B     (FP8≈14GB, L40S)',  value: 'Qwen/Qwen2.5-14B-Instruct' },
+      { label: '48GB · Qwen3-14B       (FP8≈14GB, L40S)',  value: 'Qwen/Qwen3-14B' },
       // ── 80 GB · A100 / H100 ──
       { label: '80GB · Qwen3-30B-A3B   (FP8≈30GB)',        value: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8' },
       { label: '80GB · Qwen2.5-32B     (FP8≈32GB)',        value: 'Qwen/Qwen2.5-32B-Instruct' },
-      { label: '80GB · Llama3.3-70B    (FP8≈70GB, H100)',  value: 'meta-llama/Llama-3.3-70B-Instruct' },
+      { label: '80GB · Llama3.3-70B 🔒 (FP8≈70GB, H100)',  value: 'meta-llama/Llama-3.3-70B-Instruct' },
       { label: '80GB · Qwen2.5-72B     (FP8≈72GB, H100)',  value: 'Qwen/Qwen2.5-72B-Instruct' }
     ]
   },
   'CTX_LEN': {
     description: 'Max context length (tokens). Larger = more KV cache VRAM. GQA models (Qwen2.5/3, Llama3) are efficient; non-GQA models cost more.',
-    hint: '65536',
-    default: '65536',
+    hint: '32768',
+    default: '32768',
     secret: false,
     presets: [
       { label: '8K  · test / very tight 24GB',  value: '8192' },
@@ -281,60 +285,60 @@ window.PLACEHOLDER_METADATA = {
     secret: true,
   },
   // vLLM — VRAM guide: BF16 ≈ 2 GB/B · FP8 ≈ 1 GB/B
-  // L4 (Ampere 24GB): BF16 only → ≤12B safe  |  L40S (Ada 48GB): FP8 → ≤40B
+  // L4 (Ada Lovelace 24GB, SM 8.9): ≤12B BF16  |  L40S (Ada Lovelace 48GB): FP8 → ≤40B
   // A100 80GB: BF16 ≤40B  |  H100 80GB: FP8 W8A8 → ≤72B single card
   // Time-sliced (shared) GPU: divide the budget — 2 models on one L40S ≈ 24GB each
   'VLLM_MODEL': {
-    description: 'HuggingFace model name to serve',
-    hint: 'meta-llama/Llama-3.1-8B-Instruct',
-    default: 'meta-llama/Llama-3.1-8B-Instruct',
+    description: 'HuggingFace model name to serve (🔒 presets require VLLM_HF_TOKEN)',
+    hint: 'Qwen/Qwen2.5-7B-Instruct',
+    default: 'Qwen/Qwen2.5-7B-Instruct',
     secret: false,
     refs: [
       { label: 'HuggingFace Models', url: 'https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads' }
     ],
     presets: [
-      // ── 24 GB L4 · BF16 only (Ampere, ≤12B safe) — 8 presets ──
-      { label: '24GB · Phi-4-mini           (BF16≈8GB,  L4)',    value: 'microsoft/Phi-4-mini-instruct' },
-      { label: '24GB · Llama3.2-3B          (BF16≈6GB,  L4)',    value: 'meta-llama/Llama-3.2-3B-Instruct' },
-      { label: '24GB · Qwen2.5-7B           (BF16≈14GB, L4)',    value: 'Qwen/Qwen2.5-7B-Instruct' },
-      { label: '24GB · Mistral-7B           (BF16≈14GB, L4)',    value: 'mistralai/Mistral-7B-Instruct-v0.3' },
-      { label: '24GB · Qwen2.5-Coder-7B     (BF16≈14GB, L4)',    value: 'Qwen/Qwen2.5-Coder-7B-Instruct' },
-      { label: '24GB · Llama3.1-8B          (BF16≈16GB, L4)',    value: 'meta-llama/Llama-3.1-8B-Instruct' },
-      { label: '24GB · Qwen3-8B             (BF16≈16GB, L4)',    value: 'Qwen/Qwen3-8B' },
-      { label: '24GB · DeepSeek-R1-8B       (BF16≈16GB, L4)',    value: 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B' },
+      // ── 24 GB L4 · Ada Lovelace (≤12B BF16 safe) — 8 presets ──
+      { label: '24GB · Qwen2.5-7B           (BF16≈14GB, L4)',       value: 'Qwen/Qwen2.5-7B-Instruct' },
+      { label: '24GB · Phi-4-mini           (BF16≈8GB,  L4)',       value: 'microsoft/Phi-4-mini-instruct' },
+      { label: '24GB · Qwen2.5-Coder-7B     (BF16≈14GB, L4)',       value: 'Qwen/Qwen2.5-Coder-7B-Instruct' },
+      { label: '24GB · Qwen3-8B             (BF16≈16GB, L4)',       value: 'Qwen/Qwen3-8B' },
+      { label: '24GB · DeepSeek-R1-8B       (BF16≈16GB, L4)',       value: 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B' },
+      { label: '24GB · Llama3.2-3B 🔒       (BF16≈6GB,  L4)',       value: 'meta-llama/Llama-3.2-3B-Instruct' },
+      { label: '24GB · Mistral-7B 🔒        (BF16≈14GB, L4)',       value: 'mistralai/Mistral-7B-Instruct-v0.3' },
+      { label: '24GB · Llama3.1-8B 🔒       (BF16≈16GB, L4)',       value: 'meta-llama/Llama-3.1-8B-Instruct' },
       // ── 48 GB L40S · FP8 (Ada Lovelace, ≤40B; ≤14B fits a half-sliced GPU) — 10 presets ──
-      { label: '48GB · Gemma3-12B           (FP8≈12GB,  L40S)',  value: 'google/gemma-3-12b-it' },
-      { label: '48GB · Mistral-Nemo-12B     (FP8≈12GB,  L40S)',  value: 'mistralai/Mistral-Nemo-Instruct-2407' },
-      { label: '48GB · Phi-4                (FP8≈14GB,  L40S)',  value: 'microsoft/Phi-4' },
-      { label: '48GB · Qwen2.5-14B          (FP8≈14GB,  L40S)',  value: 'Qwen/Qwen2.5-14B-Instruct' },
-      { label: '48GB · Qwen3-14B            (FP8≈14GB,  L40S)',  value: 'Qwen/Qwen3-14B' },
-      { label: '48GB · DeepSeek-R1-14B      (FP8≈14GB,  L40S)',  value: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B' },
-      { label: '48GB · Qwen2.5-Coder-14B    (FP8≈14GB,  L40S)',  value: 'Qwen/Qwen2.5-Coder-14B-Instruct' },
-      { label: '48GB · Mistral-Small3.1-24B (FP8≈24GB,  L40S)',  value: 'mistralai/Mistral-Small-3.1-24B-Instruct-2503' },
-      { label: '48GB · Qwen3-30B-A3B        (FP8≈30GB,  L40S)',  value: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8' },
-      { label: '48GB · Qwen2.5-32B          (FP8≈32GB,  L40S)',  value: 'Qwen/Qwen2.5-32B-Instruct' },
+      { label: '48GB · Gemma3-12B 🔒        (FP8≈12GB,  L40S)',     value: 'google/gemma-3-12b-it' },
+      { label: '48GB · Mistral-Nemo-12B 🔒  (FP8≈12GB,  L40S)',     value: 'mistralai/Mistral-Nemo-Instruct-2407' },
+      { label: '48GB · Phi-4                (FP8≈14GB,  L40S)',     value: 'microsoft/Phi-4' },
+      { label: '48GB · Qwen2.5-14B          (FP8≈14GB,  L40S)',     value: 'Qwen/Qwen2.5-14B-Instruct' },
+      { label: '48GB · Qwen3-14B            (FP8≈14GB,  L40S)',     value: 'Qwen/Qwen3-14B' },
+      { label: '48GB · DeepSeek-R1-14B      (FP8≈14GB,  L40S)',     value: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B' },
+      { label: '48GB · Qwen2.5-Coder-14B    (FP8≈14GB,  L40S)',     value: 'Qwen/Qwen2.5-Coder-14B-Instruct' },
+      { label: '48GB · Mistral-Small3.1 🔒  (FP8≈24GB,  L40S)',     value: 'mistralai/Mistral-Small-3.1-24B-Instruct-2503' },
+      { label: '48GB · Qwen3-30B-A3B        (FP8≈30GB,  L40S)',     value: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8' },
+      { label: '48GB · Qwen2.5-32B          (FP8≈32GB,  L40S)',     value: 'Qwen/Qwen2.5-32B-Instruct' },
       // ── 80 GB A100 · FP8 mid (24-40B, good headroom) — 8 presets ─
-      { label: '80GB · Mistral-Small3.1-24B (FP8≈24GB,  A100)',  value: 'mistralai/Mistral-Small-3.1-24B-Instruct-2503' },
-      { label: '80GB · Gemma3-27B           (FP8≈27GB,  A100)',  value: 'google/gemma-3-27b-it' },
-      { label: '80GB · Qwen3-30B-A3B        (FP8≈30GB,  A100)',  value: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8' },
-      { label: '80GB · Qwen3-32B            (FP8≈32GB,  A100)',  value: 'Qwen/Qwen3-32B' },
-      { label: '80GB · Qwen2.5-32B          (FP8≈32GB,  A100)',  value: 'Qwen/Qwen2.5-32B-Instruct' },
-      { label: '80GB · DeepSeek-R1-32B      (FP8≈32GB,  A100)',  value: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B' },
-      { label: '80GB · Qwen2.5-Coder-32B    (FP8≈32GB,  A100)',  value: 'Qwen/Qwen2.5-Coder-32B-Instruct' },
-      { label: '80GB · Qwen2.5-Math-32B     (FP8≈32GB,  A100)',  value: 'Qwen/Qwen2.5-Math-32B-Instruct' },
+      { label: '80GB · Mistral-Small3.1 🔒  (FP8≈24GB,  A100)',     value: 'mistralai/Mistral-Small-3.1-24B-Instruct-2503' },
+      { label: '80GB · Gemma3-27B 🔒        (FP8≈27GB,  A100)',     value: 'google/gemma-3-27b-it' },
+      { label: '80GB · Qwen3-30B-A3B        (FP8≈30GB,  A100)',     value: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8' },
+      { label: '80GB · Qwen3-32B            (FP8≈32GB,  A100)',     value: 'Qwen/Qwen3-32B' },
+      { label: '80GB · Qwen2.5-32B          (FP8≈32GB,  A100)',     value: 'Qwen/Qwen2.5-32B-Instruct' },
+      { label: '80GB · DeepSeek-R1-32B      (FP8≈32GB,  A100)',     value: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B' },
+      { label: '80GB · Qwen2.5-Coder-32B    (FP8≈32GB,  A100)',     value: 'Qwen/Qwen2.5-Coder-32B-Instruct' },
+      { label: '80GB · Qwen2.5-Math-32B     (FP8≈32GB,  A100)',     value: 'Qwen/Qwen2.5-Math-32B-Instruct' },
       // ── 80 GB H100 · FP8 W8A8 large (70B+) — 8 presets ──
-      { label: '80GB · Llama3.3-70B         (FP8≈70GB,  H100)',  value: 'meta-llama/Llama-3.3-70B-Instruct' },
-      { label: '80GB · Llama3.1-70B         (FP8≈70GB,  H100)',  value: 'meta-llama/Llama-3.1-70B-Instruct' },
-      { label: '80GB · Qwen3-72B            (FP8≈72GB,  H100)',  value: 'Qwen/Qwen3-72B' },
-      { label: '80GB · Qwen2.5-72B          (FP8≈72GB,  H100)',  value: 'Qwen/Qwen2.5-72B-Instruct' },
-      { label: '80GB · DeepSeek-R1-70B      (FP8≈70GB,  H100)',  value: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B' },
-      { label: '80GB · Qwen2.5-Coder-72B    (FP8≈72GB,  H100)',  value: 'Qwen/Qwen2.5-Coder-72B-Instruct' },
-      { label: '80GB · Qwen2.5-Math-72B     (FP8≈72GB,  H100)',  value: 'Qwen/Qwen2.5-Math-72B-Instruct' },
-      { label: '80GB · Mixtral-8x7B         (FP8≈47GB,  H100)',  value: 'mistralai/Mixtral-8x7B-Instruct-v0.1' }
+      { label: '80GB · Llama3.3-70B 🔒      (FP8≈70GB,  H100)',     value: 'meta-llama/Llama-3.3-70B-Instruct' },
+      { label: '80GB · Llama3.1-70B 🔒      (FP8≈70GB,  H100)',     value: 'meta-llama/Llama-3.1-70B-Instruct' },
+      { label: '80GB · Qwen3-72B            (FP8≈72GB,  H100)',     value: 'Qwen/Qwen3-72B' },
+      { label: '80GB · Qwen2.5-72B          (FP8≈72GB,  H100)',     value: 'Qwen/Qwen2.5-72B-Instruct' },
+      { label: '80GB · DeepSeek-R1-70B      (FP8≈70GB,  H100)',     value: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B' },
+      { label: '80GB · Qwen2.5-Coder-72B    (FP8≈72GB,  H100)',     value: 'Qwen/Qwen2.5-Coder-72B-Instruct' },
+      { label: '80GB · Qwen2.5-Math-72B     (FP8≈72GB,  H100)',     value: 'Qwen/Qwen2.5-Math-72B-Instruct' },
+      { label: '80GB · Mixtral-8x7B 🔒      (FP8≈47GB,  H100)',     value: 'mistralai/Mixtral-8x7B-Instruct-v0.1' }
     ]
   },
   'VLLM_HF_TOKEN': {
-    description: 'HuggingFace token for gated models (leave blank for public models)',
+    description: 'HuggingFace token for gated 🔒 models (leave blank for ungated models)',
     hint: 'hf_xxxxxxxxxxxxxxxx',
     default: '',
     secret: true,
@@ -346,16 +350,34 @@ window.PLACEHOLDER_METADATA = {
     secret: false,
   },
   'VLLM_CTX_LEN': {
-    description: 'Max context length (--max-model-len). Leave blank for model default. Larger = more KV cache VRAM.',
-    hint: '8192',
+    description: 'Max context length (--max-model-len). Leave blank to auto-fit available GPU VRAM.',
+    hint: 'auto (blank)',
     default: '',
     secret: false,
     presets: [
-      { label: '8K  · 24GB safe',         value: '8192' },
-      { label: '16K · 24GB balanced',     value: '16384' },
-      { label: '32K · 24GB / 80GB',       value: '32768' },
-      { label: '64K · 80GB recommended',  value: '65536' },
+      { label: 'auto · fit GPU VRAM',     value: 'auto' },
+      { label: '8K   · 24GB safe',        value: '8192' },
+      { label: '16K  · 24GB balanced',    value: '16384' },
+      { label: '32K  · 24GB / 80GB',      value: '32768' },
+      { label: '64K  · 80GB recommended', value: '65536' },
       { label: '128K · H100 large',       value: '131072' }
+    ]
+  },
+  'VLLM_TOOL_PARSER': {
+    description: 'Tool-call parser (--tool-parser). Leave blank for auto-detect from model name, or "none" to disable (--no-tools).',
+    hint: 'auto (blank)',
+    default: '',
+    secret: false,
+    presets: [
+      { label: 'auto · detect from model',         value: '' },
+      { label: 'hermes · Qwen2.5 / Qwen3',         value: 'hermes' },
+      { label: 'phi4_mini_json · Phi-4-mini',      value: 'phi4_mini_json' },
+      { label: 'llama3_json · Llama 3.1–3.3',      value: 'llama3_json' },
+      { label: 'mistral · Mistral / Mixtral',      value: 'mistral' },
+      { label: 'qwen3_coder · Qwen3-Coder',        value: 'qwen3_coder' },
+      { label: 'deepseek_v3 · DeepSeek-V3',        value: 'deepseek_v3' },
+      { label: 'gemma4 · Gemma 4',                 value: 'gemma4' },
+      { label: 'none · disable tools (--no-tools)', value: 'none' }
     ]
   },
   'VLLM_ISVC_NAME': {
@@ -665,7 +687,7 @@ window.renderPlaceholderInputs = function() {
           }
           const vs = document.createElement('span');
           vs.style.cssText = 'font-family:monospace; font-size:0.68rem; color:#003d80; word-break:break-all; white-space:normal;';
-          vs.textContent = val;
+          vs.textContent = val || '(auto)';
           chip.appendChild(vs);
           chip.onclick = () => {
             const inp = document.getElementById(inputId);
@@ -780,7 +802,7 @@ window.generateNodeGroupConfigHtml = function (opts = {}) {
   const esc = window.escapeHtml || (s => String(s));
 
   return `
-      <div class="popup-section">
+      <div class="popup-section" data-target-infra-id="${esc(o.infraId)}">
         <div class="popup-section-title">🎯 Target Infra</div>
         <div style="font-size:0.82rem; color:#495057;">
           Adding a new NodeGroup to <b>${esc(o.infraId)}</b> — existing nodes are not touched.
@@ -939,6 +961,9 @@ window.generateCommandComposerHtml = function (opts = {}) {
           <div id="scriptQuickRefRefs" style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;"></div>
           <div id="scriptQuickRefPresets"></div>
         </div>
+
+        <!-- Generalized Application Network & Disk Readiness Panel -->
+        <div id="appAccessPanel" style="display:none; margin-top:8px;"></div>
       </div>
 `;
   }
@@ -1057,12 +1082,29 @@ window.addPhaseBlock = function () {
       </label>
       <button type="button" class="btn btn-sm btn-outline-danger phase-del">✕</button>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <select class="form-control form-control-sm phase-template" style="width:auto;max-width:50%;font-family:monospace;" title="Runs the init script template over SSH (as root, TB_* exported) instead of the commands">
+        <option value="">commands below</option>
+      </select>
+      <input class="form-control form-control-sm phase-env" style="flex:1;" placeholder="env: ROLE=web, X=1 (exported to commands and template steps)">
+    </div>
     <textarea class="form-control form-control-sm phase-cmds" rows="2" placeholder="One command per line"></textarea>`;
   block.querySelector('.phase-target-type').onchange = function () {
     const val = block.querySelector('.phase-target-val');
     val.disabled = !this.value;
     if (!this.value) val.value = '';
   };
+  const tplSel = block.querySelector('.phase-template');
+  tplSel.onchange = function () {
+    const cmds = block.querySelector('.phase-cmds');
+    cmds.disabled = !!this.value;
+    cmds.placeholder = this.value ? `init script template ${this.value} runs here (commands are not used in this phase)` : 'One command per line';
+  };
+  if (window.fetchInitScriptTemplates) {
+    window.fetchInitScriptTemplates().then(list => {
+      if (list.length > 0) tplSel.innerHTML = window.initScriptTemplateOptionsHtml(list, 'commands below');
+    });
+  }
   block.querySelector('.phase-del').onclick = function () {
     block.remove();
     document.querySelectorAll('#phaseList .phase-block').forEach((b, i) => {
@@ -1077,17 +1119,26 @@ window.collectPhases = function () {
   const toggle = document.getElementById('usePhasesToggle');
   if (!toggle || !toggle.checked) return null;
   const phases = [];
+  let bad = false;
   document.querySelectorAll('#phaseList .phase-block').forEach(block => {
-    const commands = block.querySelector('.phase-cmds').value
+    const templateId = block.querySelector('.phase-template')?.value || '';
+    const commands = templateId ? [] : block.querySelector('.phase-cmds').value
       .split('\n').map(c => c.trim()).filter(c => c.length > 0);
-    if (commands.length === 0) return;
-    const phase = { command: commands };
+    if (commands.length === 0 && !templateId) return;
+    const phase = templateId ? { templateId } : { command: commands };
+    const envText = (block.querySelector('.phase-env')?.value || '').trim();
+    if (envText && window.parseInitScriptEnvText) {
+      const env = window.parseInitScriptEnvText(envText);
+      if (env === false) { bad = true; return; }
+      phase.env = env;
+    }
     const type = block.querySelector('.phase-target-type').value;
     const val = block.querySelector('.phase-target-val').value.trim();
     if (type && val) phase[type] = val;
     if (block.querySelector('.phase-continue').checked) phase.continueOnError = true;
     phases.push(phase);
   });
+  if (bad) return null;
   return phases.length > 0 ? phases : null;
 };
 
@@ -1119,8 +1170,8 @@ window.predefinedScriptCategories = {
     label: '🤖 LLM (Ollama)',
     description: 'Ollama-based LLM service deployment',
     scripts: [
-      { value: 'Nvidia', label: '1. Install GPU Driver (NVIDIA/AMD auto-detect)', step: 1 },
-      { value: 'RebootVM', label: '2. Reboot Node', step: 2 },
+      { value: 'Nvidia', label: '1. Install GPU Driver (auto-skips if active)', step: 1 },
+      { value: 'RebootVM', label: '2. Reboot Node (only if new driver installed)', step: 2, optional: true },
       { value: 'Nvidia-Status', label: '3. Check GPU Driver (NVIDIA/AMD)', step: 3 },
       { value: 'Ollama', label: '4. Install Ollama', step: 4 },
       { value: 'OllamaPull', label: '5. Pull LLM Model', step: 5 },
@@ -1132,8 +1183,8 @@ window.predefinedScriptCategories = {
     label: '🤖 LLM (vLLM)',
     description: 'vLLM-based high-performance LLM service',
     scripts: [
-      { value: 'Nvidia', label: '1. Install GPU Driver (NVIDIA/AMD auto-detect)', step: 1, targetLabel: 'accelerator=gpu' },
-      { value: 'RebootVM', label: '2. Reboot Node', step: 2, targetLabel: 'accelerator=gpu' },
+      { value: 'Nvidia', label: '1. Install GPU Driver (auto-skips if active)', step: 1, targetLabel: 'accelerator=gpu' },
+      { value: 'RebootVM', label: '2. Reboot Node (only if new driver installed)', step: 2, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'Nvidia-Status', label: '3. Check GPU Driver (NVIDIA/AMD)', step: 3, targetLabel: 'accelerator=gpu' },
       { value: 'vLLM', label: '4. Install vLLM', step: 4, targetLabel: 'accelerator=gpu' },
       { value: 'vLLMServe', label: '5. Serve LLM Model', step: 5, targetLabel: 'accelerator=gpu' },
@@ -1149,8 +1200,8 @@ window.predefinedScriptCategories = {
     label: '📊 LLM Benchmark',
     description: 'LLM benchmark environment (vLLM + GuideLLM + Monitoring)',
     scripts: [
-      { value: 'Nvidia', label: '1. Install GPU Driver (NVIDIA/AMD auto-detect)', step: 1, targetLabel: 'accelerator=gpu' },
-      { value: 'RebootVM', label: '2. Reboot Node', step: 2, targetLabel: 'accelerator=gpu' },
+      { value: 'Nvidia', label: '1. Install GPU Driver (auto-skips if active)', step: 1, targetLabel: 'accelerator=gpu' },
+      { value: 'RebootVM', label: '2. Reboot Node (only if new driver installed)', step: 2, optional: true, targetLabel: 'accelerator=gpu' },
       { value: 'Nvidia-Status', label: '3. Check GPU Driver (NVIDIA/AMD)', step: 3, targetLabel: 'accelerator=gpu' },
       { value: 'BenchmarkTarget', label: '4. Setup Benchmark Target (vLLM+Model+Telemetry)', step: 4, targetLabel: 'accelerator=gpu' },
       { value: 'BenchmarkManager', label: '5. Setup Benchmark Manager (Monitoring+Tools)', step: 5, targetLabel: 'role=benchmark', targetLabels: ['role=benchmark', 'role=observability'] },
@@ -1566,6 +1617,7 @@ window.clearLabelSelector = function() {
     updateSelectedLabelsDisplay();
     updateLabelMatchPreview();
     updateAvailableLabelChipStyles();
+    if (window.updateAppAccessPanel) window.updateAppAccessPanel();
   }
 };
 
@@ -1595,7 +1647,10 @@ window.extractLabelsFromInfra = function(infraId) {
     nodes.push({
       id: nd.id,
       name: nd.name || nd.id,
-      label: nd.label || {}
+      label: nd.label || {},
+      nodeGroupId: nd.nodeGroupId || '',
+      securityGroupIds: Array.isArray(nd.securityGroupIds) ? nd.securityGroupIds : [],
+      rootDiskSize: nd.rootDiskSize || ''
     });
 
     if (nd.label && typeof nd.label === 'object') {
@@ -1804,6 +1859,7 @@ window.removeLabelFromSelector = function(labelPair) {
   updateSelectedLabelsDisplay();
   updateLabelMatchPreview();
   updateAvailableLabelChipStyles();
+  if (window.updateAppAccessPanel) window.updateAppAccessPanel();
 };
 
 // Update available label chip styles based on selection
@@ -1853,6 +1909,7 @@ window.addLabelToSelector = function(labelPair) {
   updateSelectedLabelsDisplay();
   updateLabelMatchPreview();
   updateAvailableLabelChipStyles();
+  if (window.updateAppAccessPanel) window.updateAppAccessPanel();
 };
 
 // Update preview of matching VMs
@@ -1934,6 +1991,7 @@ window.setupInfraSelectorForLabels = function() {
       updateSelectedLabelsDisplay();
     }
     updateAvailableLabels(this.value);
+    if (window.updateAppAccessPanel) window.updateAppAccessPanel();
   });
   
   // Note: Label input is now hidden, so no need for direct input listener
@@ -1947,6 +2005,8 @@ window.setupInfraSelectorForLabels = function() {
 
 // Setup Commands popup (call in didOpen)
 window.setupCommandsPopup = function (maxCommands = 10) {
+  window._activeComposerScripts = [];
+
   // Define addCmd function
   window.addCmd = function () {
     const cmdContainer = document.getElementById('cmdContainer');
@@ -2013,6 +2073,30 @@ window.setupCommandsPopup = function (maxCommands = 10) {
 
   // Initial render of placeholder inputs for pre-filled commands
   window.renderPlaceholderInputs();
+
+  // Keep Application Network & Disk Readiness panel synced with parameter & target scope edits
+  const paramsPanel = document.getElementById('cmdParamsPanel');
+  if (paramsPanel && !paramsPanel.dataset.appAccessDelegation) {
+    paramsPanel.dataset.appAccessDelegation = 'true';
+    let appAccessTimer;
+    paramsPanel.addEventListener('input', () => {
+      clearTimeout(appAccessTimer);
+      appAccessTimer = setTimeout(() => {
+        if (window.updateAppAccessPanel) window.updateAppAccessPanel();
+      }, 250);
+    });
+  }
+
+  document.querySelectorAll('input[name="selectOption"]').forEach((radio) => {
+    if (!radio.dataset.appAccessBound) {
+      radio.dataset.appAccessBound = 'true';
+      radio.addEventListener('change', () => {
+        if (window.updateAppAccessPanel) window.updateAppAccessPanel();
+      });
+    }
+  });
+
+  if (window.updateAppAccessPanel) window.updateAppAccessPanel();
 };
 
 // Collect commands from popup (call in preConfirm).
@@ -2063,6 +2147,1066 @@ window.collectCommands = function () {
 };
 
 // ============================================================
+// Generalized Application Network (Security Group) & Disk Readiness
+// ============================================================
+
+const _MCMP_INBOUND_PORTS = [
+  { protocol: 'TCP', port: '80', desc: 'HTTP' },
+  { protocol: 'TCP', port: '443', desc: 'HTTPS' },
+  { protocol: 'TCP', port: '3000', desc: 'Web Console' },
+  { protocol: 'TCP', port: '3001', desc: 'IAM' },
+  { protocol: 'TCP', port: '1024', desc: 'CB-Spider' },
+  { protocol: 'TCP', port: '1323', desc: 'CB-Tumblebug' },
+  { protocol: 'TCP', port: '1324', desc: 'CB-MapUI' },
+  { protocol: 'TCP', port: '3300', desc: 'Service UI/API' },
+  { protocol: 'TCP', port: '7780', desc: 'Service UI/API' },
+  { protocol: 'TCP', port: '9000', desc: 'Service UI/API' },
+  { protocol: 'TCP', port: '9090', desc: 'Prometheus' },
+  { protocol: 'TCP', port: '18081', desc: 'Service API' },
+  { protocol: 'TCP', port: '18083', desc: 'Service API' },
+  { protocol: 'TCP', port: '18084', desc: 'Service API' },
+  { protocol: 'TCP', port: '33002', desc: 'Service API' }
+];
+
+window.SCRIPT_APP_REQUIREMENTS = {
+  // ── LLM (vLLM / Ollama / Benchmark / Agents) ──
+  'vLLM': {
+    appLabel: 'vLLM Runtime',
+    ports: [{ protocol: 'TCP', port: '8000', desc: 'OpenAI API (next step)' }],
+    minDiskGB: 100,
+    note: 'vLLM wheels, CUDA headers, and HuggingFace weights require >= 100 GB root disk (>= 12 GB free before install).'
+  },
+  'vLLMServe': {
+    appLabel: 'vLLM OpenAI API',
+    ports: [{ protocol: 'TCP', port: '8000', desc: 'OpenAI API (/v1)' }],
+    minDiskGB: 100,
+    note: 'Serves OpenAI-compatible API on TCP 8000; auto-fits max context length and tool parser.'
+  },
+  'Ollama': {
+    appLabel: 'Ollama API',
+    ports: [{ protocol: 'TCP', port: '3000', desc: 'Ollama REST API' }],
+    minDiskGB: 50,
+    note: 'Exposes Ollama REST API on TCP 3000.'
+  },
+  'OllamaPull': {
+    appLabel: 'Ollama Model Pull',
+    ports: [{ protocol: 'TCP', port: '3000', desc: 'Ollama REST API' }],
+    minDiskGB: 50,
+    note: 'Downloads LLM weights onto GPU nodes (>= 50 GB root disk recommended).'
+  },
+  'OpenWebUI': {
+    appLabel: 'Open WebUI (Ollama)',
+    ports: [{ protocol: 'TCP', port: '80', desc: 'Open WebUI HTTP' }],
+    note: 'Also ensure TCP 3000 is open on GPU nodes so Open WebUI can reach Ollama.'
+  },
+  'OpenWebUI-vLLM': {
+    appLabel: 'Open WebUI (vLLM)',
+    ports: [{ protocol: 'TCP', port: '80', desc: 'Open WebUI HTTP' }],
+    note: 'Also ensure TCP 8000 is open on GPU nodes so Open WebUI can reach vLLM.'
+  },
+  'TelemetrySensor': {
+    appLabel: 'GPU Telemetry Sensor',
+    ports: [{ protocol: 'TCP', port: '9101', desc: 'Telegraf Metrics' }],
+    restrictCidrRecommended: true,
+    note: 'Exposes unauthenticated Prometheus metrics; restrict CIDR to monitoring node or your IP if possible.'
+  },
+  'TelemetryMonitor': {
+    appLabel: 'LLM Monitoring (Prometheus + Grafana)',
+    ports: [
+      { protocol: 'TCP', port: '3000', desc: 'Grafana UI' },
+      { protocol: 'TCP', port: '9090', desc: 'Prometheus UI/API' }
+    ],
+    note: 'Scrapes GPU nodes on TCP 9101.'
+  },
+  'BenchmarkTarget': {
+    appLabel: 'LLM Benchmark Target (vLLM + Telemetry)',
+    ports: [
+      { protocol: 'TCP', port: '8000', desc: 'vLLM OpenAI API' },
+      { protocol: 'TCP', port: '9101', desc: 'GPU Telemetry' }
+    ],
+    minDiskGB: 100,
+    note: 'Installs vLLM, downloads model weights, and runs GPU telemetry containers (>= 100 GB root disk recommended).'
+  },
+  'BenchmarkManager': {
+    appLabel: 'LLM Benchmark Manager',
+    ports: [
+      { protocol: 'TCP', port: '3000', desc: 'Grafana UI' },
+      { protocol: 'TCP', port: '9090', desc: 'Prometheus UI/API' }
+    ],
+    note: 'Benchmarks GPU nodes over TCP 8000 (vLLM) and scrapes TCP 9101 (Telemetry).'
+  },
+  'HermesAgent': {
+    appLabel: 'Hermes Agent (All-in-One)',
+    ports: [
+      { protocol: 'TCP', port: '9120', desc: 'Hermes Dashboard (nginx)' },
+      { protocol: 'TCP', port: '8000', desc: 'vLLM API' }
+    ],
+    minDiskGB: 100,
+    note: 'Deploys local vLLM + Hermes Gateway/Dashboard on TCP 9120 (>= 100 GB root disk recommended).'
+  },
+  'HermesAgent-KServe': {
+    appLabel: 'Hermes Agent (KServe)',
+    ports: [{ protocol: 'TCP', port: '9120', desc: 'Hermes Dashboard (nginx)' }],
+    note: 'Connects to in-cluster KServe vLLM endpoint (localhost:30800).'
+  },
+
+  // ── Kubernetes & Visualization ──
+  'K8sControlPlane-Deploy': {
+    appLabel: 'Kubernetes Control Plane',
+    ports: [{ protocol: 'TCP', port: '6443', desc: 'K8s API Server' }],
+    minDiskGB: 50,
+    note: 'Open TCP 6443 for external kubectl and cross-VPC/multi-cloud worker join.'
+  },
+  'K8sLlmdControlPlane': {
+    appLabel: 'Kubernetes Control Plane (llm-d)',
+    ports: [
+      { protocol: 'TCP', port: '6443', desc: 'K8s API Server' },
+      { protocol: 'TCP', port: '30080', desc: 'llm-d Gateway NodePort' }
+    ],
+    minDiskGB: 80
+  },
+  'K8sGetKubeconfig': {
+    appLabel: 'Kubeconfig External Access',
+    ports: [{ protocol: 'TCP', port: '6443', desc: 'K8s API Server' }]
+  },
+  'K8sGetKubeconfigExternal': {
+    appLabel: 'Kubeconfig External SAN/Port',
+    ports: [{ protocol: 'TCP', port: '6443', portPlaceholder: '<K8S_API_PORT>', defaultPort: '6443', desc: 'External K8s API Port' }],
+    note: 'Port updates dynamically from <K8S_API_PORT>.'
+  },
+  'LlmdDeploy': {
+    appLabel: 'llm-d Distributed Inference',
+    ports: [{ protocol: 'TCP', port: '30080', desc: 'llm-d Gateway NodePort' }],
+    minDiskGB: 100
+  },
+  'LlmdDeployWithModel': {
+    appLabel: 'llm-d Distributed Inference',
+    ports: [{ protocol: 'TCP', port: '30080', desc: 'llm-d Gateway NodePort' }],
+    minDiskGB: 100
+  },
+  'K8sDemoApp': {
+    appLabel: 'K8s Demo Web App',
+    ports: [{ protocol: 'TCP', port: '30000-32767', desc: 'K8s NodePort Range' }],
+    note: 'Allocates a dynamic NodePort in 30000-32767.'
+  },
+  'K8sDashboard': {
+    appLabel: 'Kubernetes Dashboard',
+    ports: [{ protocol: 'TCP', port: '30443', desc: 'Dashboard HTTPS' }],
+    restrictCidrRecommended: true
+  },
+  'K8sPortainer': {
+    appLabel: 'Portainer CE (K8s)',
+    ports: [
+      { protocol: 'TCP', port: '30779', desc: 'Portainer HTTPS' },
+      { protocol: 'TCP', port: '30777', desc: 'Portainer HTTP' }
+    ],
+    restrictCidrRecommended: true
+  },
+  'K8sHubbleUI': {
+    appLabel: 'Cilium Hubble UI',
+    ports: [{ protocol: 'TCP', port: '30012', desc: 'Hubble UI NodePort' }],
+    restrictCidrRecommended: true,
+    note: 'Unauthenticated service map UI — use My IP (/32) to restrict access.'
+  },
+  'WeaveScopeK8s': {
+    appLabel: 'Weave Scope (K8s)',
+    ports: [{ protocol: 'TCP', port: '30040', desc: 'Weave Scope NodePort' }],
+    restrictCidrRecommended: true,
+    note: 'Unauthenticated UI with container exec controls — restrict CIDR to My IP (/32).'
+  },
+
+  // ── KServe (LLM Serving on K8s) ──
+  'KServeDeploy': {
+    appLabel: 'KServe Stack',
+    ports: [],
+    minDiskGB: 80,
+    note: 'Deploys GPU Operator + cert-manager + KServe in-cluster (external ports open in serving/WebUI steps).'
+  },
+  'KServeVllmServe': {
+    appLabel: 'KServe vLLM InferenceService',
+    ports: [{ protocol: 'TCP', port: '30800', portPlaceholder: '<VLLM_NODEPORT>', defaultPort: '30800', desc: 'vLLM OpenAI NodePort' }],
+    minDiskGB: 100,
+    note: 'Port tracks <VLLM_NODEPORT> parameter (default 30800; use 30801+ for additional models).'
+  },
+  'KServeOpenWebUI': {
+    appLabel: 'Open WebUI (KServe)',
+    ports: [{ protocol: 'TCP', port: '30080', desc: 'Open WebUI NodePort' }]
+  },
+  'KServeMonitoring': {
+    appLabel: 'KServe Grafana Monitoring',
+    ports: [{ protocol: 'TCP', port: '30300', desc: 'Grafana NodePort' }]
+  },
+  'KServeRegistryDeploy': {
+    appLabel: 'KServe Private Registry (Internal)',
+    ports: [],
+    note: 'Exposes NodePort 30500 for vNet-internal pulls only — keep TCP 30500 CLOSED in external Security Groups.'
+  },
+
+  // ── MCP (agentgateway) ──
+  'McpRegistryWeb': {
+    appLabel: 'Model Registry Web',
+    ports: [{ protocol: 'TCP', port: '30902', desc: 'Registry Web Catalog' }]
+  },
+  'McpAgentgateway': {
+    appLabel: 'MCP agentgateway',
+    ports: [
+      { protocol: 'TCP', port: '30900', desc: 'Federated MCP (/mcp)' },
+      { protocol: 'TCP', port: '30901', desc: 'agentgateway Admin UI' }
+    ],
+    restrictCidrRecommended: true,
+    note: 'Admin UI on TCP 30901 has no auth; restricting CIDR to My IP (/32) is recommended.'
+  },
+
+  // ── ML (Ray) ──
+  'RayHead-Deploy': {
+    appLabel: 'Ray Head Cluster',
+    ports: [
+      { protocol: 'TCP', port: '8265', desc: 'Ray Dashboard' },
+      { protocol: 'TCP', port: '6379', desc: 'Ray GCS (workers)' },
+      { protocol: 'TCP', port: '10001', desc: 'Ray Client' }
+    ],
+    restrictCidrRecommended: true,
+    note: 'Ray Dashboard/GCS have no built-in auth — restrict CIDR to trusted client/worker IPs.'
+  },
+
+  // ── Monitoring & Network ──
+  'Netdata': {
+    appLabel: 'Netdata Live Monitor',
+    ports: [{ protocol: 'TCP', port: '19999', desc: 'Netdata Web UI' }],
+    restrictCidrRecommended: true
+  },
+  'WeaveScope': {
+    appLabel: 'Weave Scope Host Monitor',
+    ports: [{ protocol: 'TCP', port: '4040', desc: 'Weave Scope UI' }],
+    restrictCidrRecommended: true,
+    note: 'Unauthenticated host/container UI — restrict CIDR to My IP (/32).'
+  },
+  'ELK': {
+    appLabel: 'Elastic Stack (ELK)',
+    ports: [
+      { protocol: 'TCP', port: '5601', desc: 'Kibana UI' },
+      { protocol: 'TCP', port: '9200', desc: 'Elasticsearch HTTP' }
+    ],
+    minDiskGB: 50,
+    restrictCidrRecommended: true
+  },
+  'Setup-WireGuard': {
+    appLabel: 'WireGuard Mesh VPN',
+    ports: [{ protocol: 'UDP', port: '51820', desc: 'WireGuard Tunnel (UDP)' }]
+  },
+  'PortForward-Add': {
+    appLabel: 'Port Forwarding (DNAT)',
+    ports: [{ protocol: 'TCP', port: '', portPlaceholder: '<EXT_PORT>', defaultPort: '', desc: 'Forwarded External Port' }],
+    note: 'Enter <EXT_PORT> in Parameters below to check and open that inbound TCP port.'
+  },
+
+  // ── Game / Platform / OpenStack / Utility ──
+  'Xonotic': {
+    appLabel: 'Xonotic FPS Server',
+    ports: [
+      { protocol: 'UDP', port: '26000', desc: 'Game Traffic (UDP)' },
+      { protocol: 'TCP', port: '26000', desc: 'Server Info (TCP)' }
+    ]
+  },
+  'Westward': {
+    appLabel: 'Westward Strategy Game',
+    ports: [{ protocol: 'TCP', port: '8080', desc: 'Game HTTP' }]
+  },
+  'CB-TB-Deploy': {
+    appLabel: 'CB-Tumblebug + CB-MapUI',
+    ports: [
+      { protocol: 'TCP', port: '1324', desc: 'CB-MapUI Web' },
+      { protocol: 'TCP', port: '1323', desc: 'CB-Tumblebug API' },
+      { protocol: 'TCP', port: '1024', desc: 'CB-Spider API' }
+    ],
+    minDiskGB: 50
+  },
+  'M-CMP-Install': {
+    appLabel: 'M-CMP Platform',
+    ports: _MCMP_INBOUND_PORTS,
+    minDiskGB: 100,
+    note: 'M-CMP multi-service stack requires 15 inbound TCP ports and >= 100 GB root disk.'
+  },
+  'M-CMP-Run': {
+    appLabel: 'M-CMP Platform',
+    ports: _MCMP_INBOUND_PORTS,
+    minDiskGB: 100
+  },
+  'DevStack-Install': {
+    appLabel: 'OpenStack (DevStack)',
+    ports: [
+      { protocol: 'TCP', port: '80', desc: 'Horizon & Keystone' },
+      { protocol: 'TCP', port: '6080', desc: 'Nova noVNC' },
+      { protocol: 'TCP', port: '8774', desc: 'Nova API' },
+      { protocol: 'TCP', port: '9292', desc: 'Glance API' },
+      { protocol: 'TCP', port: '9696', desc: 'Neutron API' },
+      { protocol: 'TCP', port: '8776', desc: 'Cinder API' },
+      { protocol: 'TCP', port: '9876', desc: 'Octavia API' }
+    ],
+    minDiskGB: 100,
+    note: 'Requires bare-metal or nested-virt VM with >= 100 GB root disk.'
+  },
+  'Kolla-Install': {
+    appLabel: 'OpenStack (Kolla-Ansible)',
+    ports: [
+      { protocol: 'TCP', port: '80', desc: 'Horizon Dashboard' },
+      { protocol: 'TCP', port: '5000', desc: 'Keystone API' },
+      { protocol: 'TCP', port: '6080', desc: 'Nova noVNC' },
+      { protocol: 'TCP', port: '8774', desc: 'Nova API' },
+      { protocol: 'TCP', port: '8776', desc: 'Cinder API' },
+      { protocol: 'TCP', port: '8780', desc: 'Placement API' },
+      { protocol: 'TCP', port: '9292', desc: 'Glance API' },
+      { protocol: 'TCP', port: '9696', desc: 'Neutron API' },
+      { protocol: 'TCP', port: '9876', desc: 'Octavia API' }
+    ],
+    minDiskGB: 100,
+    note: 'Production Docker-based OpenStack; >= 100 GB root disk recommended.'
+  },
+  'Nginx': {
+    appLabel: 'Nginx Web Server',
+    ports: [{ protocol: 'TCP', port: '80', desc: 'HTTP Web' }]
+  },
+  'Jitsi': {
+    appLabel: 'Jitsi Meet Video Conferencing',
+    ports: [
+      { protocol: 'TCP', port: '80', desc: 'HTTP / ACME' },
+      { protocol: 'TCP', port: '443', desc: 'HTTPS Web' },
+      { protocol: 'UDP', port: '10000', desc: 'JVB Media (UDP)' },
+      { protocol: 'UDP', port: '3478', desc: 'STUN/TURN (UDP)' },
+      { protocol: 'TCP', port: '5349', desc: 'TURN TLS' }
+    ],
+    minDiskGB: 30
+  }
+};
+
+// Shared grouped application port presets for both Command Composer and Security Group dialogs
+window.APP_PORT_PRESETS = [
+  // LLM & AI Agents
+  { id: 'vllm', group: 'LLM & AI Agents', label: 'vLLM OpenAI API (TCP 8000)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '8000', desc: 'vLLM API' }] },
+  { id: 'vllm-webui', group: 'LLM & AI Agents', label: 'vLLM + Open WebUI (TCP 80, 8000)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '80', desc: 'Open WebUI' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '8000', desc: 'vLLM API' }] },
+  { id: 'ollama-webui', group: 'LLM & AI Agents', label: 'Ollama + Open WebUI (TCP 80, 3000)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '80', desc: 'Open WebUI' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '3000', desc: 'Ollama API' }] },
+  { id: 'llm-benchmark-target', group: 'LLM & AI Agents', label: 'LLM Benchmark Target (TCP 8000, 9101)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '8000', desc: 'vLLM API' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '9101', desc: 'GPU Telemetry' }] },
+  { id: 'llm-monitoring', group: 'LLM & AI Agents', label: 'Prometheus + Grafana (TCP 3000, 9090)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '3000', desc: 'Grafana' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '9090', desc: 'Prometheus' }] },
+  { id: 'hermes-agent', group: 'LLM & AI Agents', label: 'Hermes Agent + vLLM (TCP 8000, 9120)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '9120', desc: 'Hermes Dashboard' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '8000', desc: 'vLLM API' }] },
+  // Kubernetes & KServe
+  { id: 'k8s-cp', group: 'Kubernetes & KServe', label: 'Kubernetes API Server (TCP 6443)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '6443', desc: 'K8s API' }] },
+  { id: 'k8s-dashboard', group: 'Kubernetes & KServe', label: 'K8s Dashboard (TCP 30443)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '30443', desc: 'K8s Dashboard' }] },
+  { id: 'k8s-portainer', group: 'Kubernetes & KServe', label: 'Portainer CE (TCP 30777, 30779)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '30779', desc: 'Portainer HTTPS' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30777', desc: 'Portainer HTTP' }] },
+  { id: 'k8s-hubble-scope', group: 'Kubernetes & KServe', label: 'Hubble UI / Weave Scope K8s (TCP 30012, 30040)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '30012', desc: 'Hubble UI' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30040', desc: 'Weave Scope' }] },
+  { id: 'kserve-stack', group: 'Kubernetes & KServe', label: 'KServe vLLM + Open WebUI + Grafana (TCP 30080, 30300, 30800)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '30800', desc: 'KServe vLLM' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30080', desc: 'Open WebUI' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30300', desc: 'Grafana' }] },
+  { id: 'llmd', group: 'Kubernetes & KServe', label: 'llm-d Gateway (TCP 6443, 30080)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '6443', desc: 'K8s API' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30080', desc: 'llm-d Gateway' }] },
+  // MCP & ML
+  { id: 'mcp-agentgateway', group: 'MCP & ML', label: 'MCP agentgateway + Registry Web (TCP 30900-30902)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '30900', desc: 'MCP Gateway' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30901', desc: 'Gateway UI' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '30902', desc: 'Registry Web' }] },
+  { id: 'ray-head', group: 'MCP & ML', label: 'Ray Head Cluster (TCP 6379, 8265, 10001)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '8265', desc: 'Ray Dashboard' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '6379', desc: 'Ray GCS' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '10001', desc: 'Ray Client' }] },
+  // Monitoring & Network
+  { id: 'netdata', group: 'Monitoring & Network', label: 'Netdata Monitor (TCP 19999)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '19999', desc: 'Netdata' }] },
+  { id: 'weavescope', group: 'Monitoring & Network', label: 'Weave Scope Host (TCP 4040)', restrictCidrRecommended: true, rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '4040', desc: 'Weave Scope' }] },
+  { id: 'wireguard', group: 'Monitoring & Network', label: 'WireGuard Mesh VPN (UDP 51820)', rules: [{ Direction: 'inbound', Protocol: 'UDP', Ports: '51820', desc: 'WireGuard' }] },
+  // Platform, OpenStack & Apps
+  { id: 'cb-tumblebug', group: 'Platform, OpenStack & Apps', label: 'CB-Tumblebug + MapUI + Spider (TCP 1024, 1323, 1324)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '1324', desc: 'CB-MapUI' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '1323', desc: 'CB-Tumblebug' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '1024', desc: 'CB-Spider' }] },
+  { id: 'mcmp', group: 'Platform, OpenStack & Apps', label: 'M-CMP Platform (15 Inbound TCP Ports)', rules: _MCMP_INBOUND_PORTS.map(p => ({ Direction: 'inbound', Protocol: p.protocol, Ports: p.port, desc: p.desc })) },
+  { id: 'openstack-kolla', group: 'Platform, OpenStack & Apps', label: 'OpenStack DevStack / Kolla-Ansible (9 API/UI Ports)', rules: ['80', '5000', '6080', '8774', '8776', '8780', '9292', '9696', '9876'].map(pt => ({ Direction: 'inbound', Protocol: 'TCP', Ports: pt, desc: 'OpenStack' })) },
+  { id: 'web-http-https', group: 'Platform, OpenStack & Apps', label: 'Web Server HTTP/HTTPS (TCP 80, 443)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '80', desc: 'HTTP' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '443', desc: 'HTTPS' }] },
+  { id: 'jitsi', group: 'Platform, OpenStack & Apps', label: 'Jitsi Meet (TCP 80, 443, 5349 + UDP 3478, 10000)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '80', desc: 'HTTP' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '443', desc: 'HTTPS' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '5349', desc: 'TURN TLS' }, { Direction: 'inbound', Protocol: 'UDP', Ports: '3478', desc: 'STUN/TURN' }, { Direction: 'inbound', Protocol: 'UDP', Ports: '10000', desc: 'JVB RTP' }] },
+  { id: 'xonotic', group: 'Platform, OpenStack & Apps', label: 'Xonotic Game Server (UDP/TCP 26000)', rules: [{ Direction: 'inbound', Protocol: 'UDP', Ports: '26000', desc: 'Game UDP' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '26000', desc: 'Game TCP' }] }
+];
+
+window.isValidCidrNotation = function(value) {
+  if (!value || typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  const ipv4Match = trimmed.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (ipv4Match) {
+    const octets = [ipv4Match[1], ipv4Match[2], ipv4Match[3], ipv4Match[4]].map(Number);
+    const prefix = Number(ipv4Match[5]);
+    return octets.every(o => o >= 0 && o <= 255) && prefix >= 0 && prefix <= 32;
+  }
+  const ipv6Match = trimmed.match(/^[0-9a-fA-F:]+\/(\d{1,3})$/);
+  if (ipv6Match && trimmed.includes(':')) {
+    const prefix = Number(ipv6Match[1]);
+    return prefix >= 0 && prefix <= 128;
+  }
+  return false;
+};
+
+window.detectClientPublicCidr = async function() {
+  if (window._cachedClientPublicIp) return `${window._cachedClientPublicIp}/32`;
+  // Use native fetch with zero custom headers so browsers send a CORS Simple GET
+  // (global axios interceptors add X-Credential-Holder, triggering OPTIONS preflights
+  // that public IP services reject with 405/520). Prefer explicit IPv4 endpoints so
+  // dual-stack corporate networks resolve the IPv4 NAT egress IP used by cloud SGs.
+  const endpoints = [
+    { url: 'https://api4.ipify.org?format=json', json: true },
+    { url: 'https://ifconfig.me/ip', json: false },
+    { url: 'https://ipv4.icanhazip.com', json: false }
+  ];
+  for (const ep of endpoints) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3500);
+    try {
+      const res = await fetch(ep.url, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'no-store',
+        signal: ctrl.signal
+      });
+      if (!res.ok) continue;
+      const body = ep.json ? await res.json() : await res.text();
+      const ip = String(ep.json ? (body && body.ip) : body || '').trim();
+      if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+        window._cachedClientPublicIp = ip;
+        return `${ip}/32`;
+      }
+    } catch (_) {
+      /* try next endpoint */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+};
+
+function _parsePortRangeSpec(spec) {
+  const s = String(spec == null ? '' : spec).trim();
+  if (!s || s === '-1' || s.toLowerCase() === 'all' || s === '*') return [1, 65535];
+  const m = s.match(/^(\d{1,5})(?:\s*-\s*(\d{1,5}))?$/);
+  if (!m) return null;
+  const lo = Number(m[1]);
+  const hi = m[2] !== undefined ? Number(m[2]) : lo;
+  if (lo < 0 || hi > 65535 || lo > hi) return null;
+  return [lo, hi];
+}
+
+window.doesSgAllowPort = function(sg, protocol, requiredPortSpec) {
+  const reqRange = _parsePortRangeSpec(requiredPortSpec);
+  if (!reqRange) return { allowed: false, cidrs: [] };
+  const [reqLo, reqHi] = reqRange;
+  const reqProto = String(protocol || 'TCP').toUpperCase();
+  const rules = Array.isArray(sg && sg.firewallRules) ? sg.firewallRules : [];
+  const matchedCidrs = [];
+
+  for (const rule of rules) {
+    const dir = String(rule.Direction || rule.direction || '').toLowerCase();
+    if (dir !== 'inbound') continue;
+    const rProto = String(rule.Protocol || rule.protocol || '').toUpperCase();
+    if (rProto !== 'ALL' && rProto !== '-1' && rProto !== reqProto) continue;
+
+    const rawPort = String(rule.Port ?? rule.port ?? rule.Ports ?? '').trim();
+    const rCidr = String(rule.CIDR || rule.cidr || '0.0.0.0/0').trim();
+
+    if (rProto === 'ALL' || rProto === '-1' || rawPort === '' || rawPort === '-1' || rawPort.toLowerCase() === 'all') {
+      matchedCidrs.push(rCidr);
+      continue;
+    }
+
+    const segments = rawPort.split(',').map(seg => _parsePortRangeSpec(seg)).filter(Boolean);
+    for (const [segLo, segHi] of segments) {
+      if (segLo <= reqLo && segHi >= reqHi) {
+        matchedCidrs.push(rCidr);
+        break;
+      }
+    }
+  }
+
+  return { allowed: matchedCidrs.length > 0, cidrs: Array.from(new Set(matchedCidrs)) };
+};
+
+window._appAccessCache = {};
+window._appAccessReqSeq = 0;
+
+window.invalidateAppAccessCache = function(infraId) {
+  if (!infraId) {
+    window._appAccessCache = {};
+    return;
+  }
+  Object.keys(window._appAccessCache || {}).forEach((k) => {
+    if (k.endsWith(`::${infraId}`)) delete window._appAccessCache[k];
+  });
+};
+
+async function _fetchInfraAccessSnapshot(nsId, infraId, username, password, forceRefresh) {
+  const key = `${nsId}::${infraId}`;
+  const now = Date.now();
+  const cached = window._appAccessCache[key];
+  if (!forceRefresh && cached && (now - cached.ts) < 20000) {
+    return cached.data;
+  }
+
+  const auth = { username, password };
+  const [infraSettled, assocSettled] = await Promise.allSettled([
+    axios.get(`${tbApiBase()}/ns/${nsId}/infra/${infraId}`, { auth }),
+    axios.get(`${tbApiBase()}/ns/${nsId}/infra/${infraId}/associatedResources`, { auth })
+  ]);
+
+  const infraObj = infraSettled.status === 'fulfilled' ? (infraSettled.value.data || {}) : {};
+  const assocSgIds = assocSettled.status === 'fulfilled'
+    ? (assocSettled.value.data?.securityGroupIds || [])
+    : [];
+
+  const nodeSgIds = [];
+  (infraObj.node || []).forEach((nd) => {
+    if (Array.isArray(nd.securityGroupIds)) {
+      nd.securityGroupIds.forEach((id) => { if (id) nodeSgIds.push(id); });
+    }
+  });
+  const allSgIds = Array.from(new Set([...assocSgIds, ...nodeSgIds]));
+
+  const sgResults = await Promise.allSettled(
+    allSgIds.map((sgId) =>
+      axios.get(`${tbApiBase()}/ns/${nsId}/resources/securityGroup/${encodeURIComponent(sgId)}`, { auth })
+        .then(r => r.data)
+    )
+  );
+  const sgMap = {};
+  sgResults.forEach((r, idx) => {
+    if (r.status === 'fulfilled' && r.value) {
+      sgMap[allSgIds[idx]] = r.value;
+    }
+  });
+
+  const snapshot = {
+    nodes: Array.isArray(infraObj.node) ? infraObj.node : [],
+    assocSgIds,
+    sgMap
+  };
+  window._appAccessCache[key] = { ts: now, data: snapshot };
+  return snapshot;
+}
+
+window.updateAppAccessPanel = async function(opts = {}) {
+  const panel = document.getElementById('appAccessPanel');
+  if (!panel) return;
+
+  const activeScripts = Array.isArray(window._activeComposerScripts)
+    ? window._activeComposerScripts.filter(Boolean)
+    : [];
+
+  if (activeScripts.length === 0) {
+    panel.style.display = 'none';
+    panel.replaceChildren();
+    return;
+  }
+
+  // Merge requirements across active scripts (supports Append mode cleanly)
+  const reqEntries = activeScripts
+    .map(s => window.SCRIPT_APP_REQUIREMENTS && window.SCRIPT_APP_REQUIREMENTS[s])
+    .filter(Boolean);
+
+  if (reqEntries.length === 0) {
+    panel.style.display = 'none';
+    panel.replaceChildren();
+    return;
+  }
+
+  // Resolve dynamic placeholder values from #cmdParamsPanel
+  const paramValues = {};
+  const paramsPanel = document.getElementById('cmdParamsPanel');
+  if (paramsPanel) {
+    paramsPanel.querySelectorAll('.placeholder-input').forEach((inp) => {
+      if (inp.dataset.fullMatch) paramValues[inp.dataset.fullMatch] = inp.value.trim();
+    });
+  }
+
+  const mergedPorts = [];
+  const seenPortKey = new Set();
+  const appLabels = [];
+  const notes = [];
+  let maxMinDiskGB = 0;
+  let restrictCidrRecommended = false;
+
+  reqEntries.forEach((req) => {
+    if (req.appLabel && !appLabels.includes(req.appLabel)) appLabels.push(req.appLabel);
+    if (req.minDiskGB && req.minDiskGB > maxMinDiskGB) maxMinDiskGB = req.minDiskGB;
+    if (req.restrictCidrRecommended) restrictCidrRecommended = true;
+    if (req.note && !notes.includes(req.note)) notes.push(req.note);
+    (req.ports || []).forEach((p) => {
+      let resolvedPort = p.port || '';
+      if (p.portPlaceholder) {
+        const dynVal = paramValues[p.portPlaceholder];
+        resolvedPort = (dynVal !== undefined && dynVal !== '') ? dynVal : (p.defaultPort || '');
+      }
+      resolvedPort = String(resolvedPort).trim();
+      const proto = String(p.protocol || 'TCP').toUpperCase();
+      const key = `${proto}:${resolvedPort || p.portPlaceholder || ''}`;
+      if (!seenPortKey.has(key)) {
+        seenPortKey.add(key);
+        mergedPorts.push({
+          protocol: proto,
+          port: resolvedPort,
+          pendingPlaceholder: !resolvedPort && p.portPlaceholder ? p.portPlaceholder : '',
+          desc: p.desc || ''
+        });
+      }
+    });
+  });
+
+  if (mergedPorts.length === 0 && maxMinDiskGB === 0 && notes.length === 0) {
+    panel.style.display = 'none';
+    panel.replaceChildren();
+    return;
+  }
+
+  // Detect live Infra context (Application Deployment popup or Add NodeGroup popup)
+  const infraSel = document.getElementById('infraSelector');
+  const ngTargetSection = document.querySelector('[data-target-infra-id]');
+  const liveInfraId = (infraSel && infraSel.value)
+    || (ngTargetSection && ngTargetSection.getAttribute('data-target-infra-id'))
+    || '';
+
+  const cfg = (typeof getConfig === 'function') ? getConfig() : {};
+  const nsId = cfg.namespace || window.configNamespace || '';
+  const reqSeq = ++window._appAccessReqSeq;
+
+  let snapshot = null;
+  let fetchErr = '';
+  if (liveInfraId && nsId && cfg.username !== undefined) {
+    try {
+      snapshot = await _fetchInfraAccessSnapshot(nsId, liveInfraId, cfg.username, cfg.password, !!opts.forceRefresh);
+    } catch (e) {
+      fetchErr = e?.response?.data?.message || e?.message || 'Unable to inspect Security Groups';
+    }
+  }
+  if (reqSeq !== window._appAccessReqSeq) return;
+
+  // Determine targeted nodes & Security Groups when live Infra snapshot is available
+  let targetNodes = [];
+  let targetSgs = [];
+  let scopeSummary = '';
+
+  if (snapshot) {
+    const allNodes = snapshot.nodes || [];
+    const checkedScope = document.querySelector('input[name="selectOption"]:checked')?.value || 'Infra';
+    const selNodeId = document.getElementById('nodeid')?.value || '';
+    const selNgId = (typeof getNodeGroupIdFromNodeSelection === 'function') ? getNodeGroupIdFromNodeSelection() : '';
+    const labelStr = (document.getElementById('labelSelector')?.value || '').trim();
+
+    let filtered = allNodes.slice();
+    if (infraSel) {
+      if (checkedScope === 'Node' && selNodeId) {
+        filtered = filtered.filter(nd => nd.id === selNodeId || nd.name === selNodeId);
+        scopeSummary = `Node ${selNodeId}`;
+      } else if (checkedScope === 'NodeGroup' && selNgId) {
+        filtered = filtered.filter(nd => nd.nodeGroupId === selNgId);
+        scopeSummary = `NodeGroup ${selNgId}`;
+      }
+    }
+
+    if (labelStr) {
+      const pairs = labelStr.split(',')
+        .map(s => s.split('=').map(x => x.trim()))
+        .filter(([k, v]) => k && v);
+      if (pairs.length > 0) {
+        filtered = filtered.filter(nd => nd.label && pairs.every(([k, v]) => nd.label[k] === v));
+        scopeSummary = scopeSummary ? `${scopeSummary} · ${labelStr}` : `label ${labelStr}`;
+      }
+    }
+
+    targetNodes = filtered;
+    const sgIdSet = new Set();
+    targetNodes.forEach((nd) => {
+      (nd.securityGroupIds || []).forEach(id => { if (id) sgIdSet.add(id); });
+    });
+    if (sgIdSet.size === 0) {
+      (snapshot.assocSgIds || []).forEach(id => { if (id) sgIdSet.add(id); });
+    }
+    targetSgs = Array.from(sgIdSet).map(id => snapshot.sgMap[id]).filter(Boolean);
+    if (!scopeSummary) {
+      scopeSummary = `${targetNodes.length || allNodes.length} node(s)`;
+    }
+  }
+
+  // Evaluate each required port across targetSgs
+  const evaluatedPorts = mergedPorts.map((p) => {
+    if (p.pendingPlaceholder || !_parsePortRangeSpec(p.port)) {
+      return { ...p, status: 'pending', openCount: 0, totalSgs: targetSgs.length, cidrs: [] };
+    }
+    if (!snapshot || targetSgs.length === 0) {
+      return { ...p, status: 'preflight', openCount: 0, totalSgs: 0, cidrs: [] };
+    }
+    let openCount = 0;
+    const cidrs = new Set();
+    targetSgs.forEach((sg) => {
+      const res = window.doesSgAllowPort(sg, p.protocol, p.port);
+      if (res.allowed) {
+        openCount++;
+        res.cidrs.forEach(c => cidrs.add(c));
+      }
+    });
+    const status = openCount === targetSgs.length
+      ? 'open'
+      : (openCount > 0 ? 'partial' : 'closed');
+    return { ...p, status, openCount, totalSgs: targetSgs.length, cidrs: Array.from(cidrs) };
+  });
+
+  const missingPorts = evaluatedPorts.filter(p => p.status === 'closed' || p.status === 'partial');
+  const allPortsOpen = snapshot && targetSgs.length > 0 && evaluatedPorts.length > 0
+    && evaluatedPorts.every(p => p.status === 'open');
+
+  // Evaluate root disk size on targetNodes when minDiskGB > 0
+  let diskCheck = null;
+  if (maxMinDiskGB > 0) {
+    const undersized = [];
+    let knownCount = 0;
+    let minKnownGB = Infinity;
+    targetNodes.forEach((nd) => {
+      const gb = parseInt(String(nd.rootDiskSize || ''), 10);
+      if (!isNaN(gb) && gb > 0) {
+        knownCount++;
+        if (gb < minKnownGB) minKnownGB = gb;
+        if (gb < maxMinDiskGB) undersized.push(`${nd.name || nd.id} (${gb} GB)`);
+      }
+    });
+    if (undersized.length > 0) {
+      diskCheck = {
+        state: 'warn',
+        text: `⚠ Root Disk: ${undersized.slice(0, 2).join(', ')}${undersized.length > 2 ? ` +${undersized.length - 2} more` : ''} < ${maxMinDiskGB} GB recommended`
+      };
+    } else if (knownCount > 0) {
+      diskCheck = {
+        state: 'ok',
+        text: `✓ Root Disk: >= ${minKnownGB} GB (meets ${maxMinDiskGB} GB recommendation)`
+      };
+    } else {
+      diskCheck = {
+        state: 'info',
+        text: `💾 Root Disk: >= ${maxMinDiskGB} GB recommended`
+      };
+    }
+  }
+
+  // Preserve existing live message or CIDR input value across re-renders
+  const prevLiveText = opts.preserveLiveMessage
+    ? (document.getElementById('appAccessLiveStatus')?.textContent || '')
+    : '';
+  const currentCidr = (document.getElementById('appAccessCidrInput')?.value || window._appAccessLastCidr || '0.0.0.0/0').trim();
+
+  // Build panel DOM programmatically (CSP-safe, XSS-safe, no innerHTML string concatenation)
+  const borderCol = missingPorts.length > 0 ? '#f0ad4e' : (allPortsOpen ? '#8fd19e' : '#b3d7ff');
+  const bgCol = missingPorts.length > 0 ? '#fffbf2' : (allPortsOpen ? '#f3fbf5' : '#f8fbff');
+
+  const card = document.createElement('div');
+  card.style.cssText = `padding:9px 12px; border:1px solid ${borderCol}; background:${bgCol}; border-radius:6px; font-size:0.75rem; color:#333;`;
+
+  // Header row
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;';
+
+  const titleWrap = document.createElement('div');
+  titleWrap.style.cssText = 'display:flex; align-items:center; gap:6px; flex-wrap:wrap;';
+
+  const titleStrong = document.createElement('strong');
+  titleStrong.style.cssText = 'color:#1f2937; font-size:0.77rem;';
+  titleStrong.textContent = `🛡️ App Readiness · ${appLabels.join(' + ')}`;
+  titleWrap.appendChild(titleStrong);
+
+  if (snapshot && targetSgs.length > 0) {
+    const scopeBadge = document.createElement('span');
+    scopeBadge.style.cssText = 'padding:1px 7px; border-radius:10px; background:#e9ecef; color:#495057; font-size:0.68rem;';
+    scopeBadge.textContent = `${scopeSummary} · ${targetSgs.length} SG${targetSgs.length > 1 ? 's' : ''}`;
+    titleWrap.appendChild(scopeBadge);
+  } else if (!liveInfraId) {
+    const preBadge = document.createElement('span');
+    preBadge.style.cssText = 'padding:1px 7px; border-radius:10px; background:#e7f1ff; color:#0b5ed7; font-size:0.68rem;';
+    preBadge.textContent = 'Pre-deployment guide';
+    titleWrap.appendChild(preBadge);
+  }
+  header.appendChild(titleWrap);
+
+  const headerActions = document.createElement('div');
+  headerActions.style.cssText = 'display:flex; align-items:center; gap:5px;';
+
+  if (liveInfraId && nsId) {
+    const refreshBtn = document.createElement('button');
+    refreshBtn.type = 'button';
+    refreshBtn.textContent = '↻ Check SGs';
+    refreshBtn.title = 'Re-check live Security Group rules';
+    refreshBtn.style.cssText = 'padding:2px 7px; font-size:0.68rem; border:1px solid #ced4da; border-radius:4px; background:#fff; color:#495057; cursor:pointer;';
+    refreshBtn.addEventListener('click', () => {
+      window.invalidateAppAccessCache(liveInfraId);
+      window.updateAppAccessPanel({ forceRefresh: true });
+    });
+    headerActions.appendChild(refreshBtn);
+
+    if (typeof window.updateFirewallRules === 'function') {
+      const manageBtn = document.createElement('button');
+      manageBtn.type = 'button';
+      manageBtn.textContent = '🔥 Manage SGs';
+      manageBtn.title = 'Open full Security Group rules manager for this Infra';
+      manageBtn.style.cssText = 'padding:2px 8px; font-size:0.68rem; border:1px solid #6c757d; border-radius:4px; background:#fff; color:#343a40; cursor:pointer;';
+      manageBtn.addEventListener('click', () => {
+        window.updateFirewallRules({
+          infraId: liveInfraId,
+          preselectSgId: targetSgs[0]?.id || ''
+        });
+      });
+      headerActions.appendChild(manageBtn);
+    }
+  }
+  header.appendChild(headerActions);
+  card.appendChild(header);
+
+  // Helper to build a single port chip with non-color icon + text state cues
+  const createPortChip = (p) => {
+    const chip = document.createElement('span');
+    let icon = 'ℹ';
+    let stateLabel = 'Required';
+    let chipBg = '#eef4ff';
+    let chipBorder = '#b6d4fe';
+    let chipColor = '#084298';
+
+    if (p.status === 'open') {
+      icon = '✓';
+      stateLabel = p.cidrs.length > 0 && !p.cidrs.includes('0.0.0.0/0') ? `Open (${p.cidrs[0]})` : 'Open';
+      chipBg = '#d1e7dd';
+      chipBorder = '#a3cfbb';
+      chipColor = '#0f5132';
+    } else if (p.status === 'partial') {
+      icon = '⚠';
+      stateLabel = `Open ${p.openCount}/${p.totalSgs} SGs`;
+      chipBg = '#fff3cd';
+      chipBorder = '#ffecb5';
+      chipColor = '#664d03';
+    } else if (p.status === 'closed') {
+      icon = '⚠';
+      stateLabel = 'Closed';
+      chipBg = '#fff3cd';
+      chipBorder = '#ffc107';
+      chipColor = '#664d03';
+    } else if (p.status === 'pending') {
+      icon = '⌨';
+      stateLabel = `Set ${p.pendingPlaceholder || 'port'}`;
+      chipBg = '#f8f9fa';
+      chipBorder = '#ced4da';
+      chipColor = '#495057';
+    }
+
+    chip.style.cssText = `display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px; border:1px solid ${chipBorder}; background:${chipBg}; color:${chipColor}; font-size:0.7rem; font-weight:600;`;
+    const portText = p.port ? `${p.protocol} ${p.port}` : `${p.protocol} ${p.pendingPlaceholder}`;
+    chip.textContent = `${icon} ${portText}${p.desc ? ` (${p.desc})` : ''} · ${stateLabel}`;
+    if (p.cidrs && p.cidrs.length > 0) {
+      chip.title = `Allowed CIDRs: ${p.cidrs.join(', ')}`;
+    }
+    return chip;
+  };
+
+  // Port chips + Disk badge row (uses native <details> disclosure when > 6 ports)
+  if (evaluatedPorts.length > 0 || diskCheck) {
+    const badgesWrap = document.createElement('div');
+    badgesWrap.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-bottom:4px;';
+
+    const visiblePorts = evaluatedPorts.length > 6 ? evaluatedPorts.slice(0, 5) : evaluatedPorts;
+    visiblePorts.forEach(p => badgesWrap.appendChild(createPortChip(p)));
+
+    if (diskCheck) {
+      const diskChip = document.createElement('span');
+      const dStyle = diskCheck.state === 'warn'
+        ? 'border:1px solid #f5c2c7; background:#f8d7da; color:#842029;'
+        : (diskCheck.state === 'ok'
+          ? 'border:1px solid #a3cfbb; background:#d1e7dd; color:#0f5132;'
+          : 'border:1px solid #ced4da; background:#f8f9fa; color:#495057;');
+      diskChip.style.cssText = `display:inline-flex; align-items:center; padding:2px 8px; border-radius:12px; font-size:0.7rem; font-weight:600; ${dStyle}`;
+      diskChip.textContent = diskCheck.text;
+      badgesWrap.appendChild(diskChip);
+    }
+
+    card.appendChild(badgesWrap);
+
+    if (evaluatedPorts.length > 6) {
+      const extraPorts = evaluatedPorts.slice(5);
+      const detailsEl = document.createElement('details');
+      detailsEl.style.cssText = 'margin:4px 0;';
+      const summaryEl = document.createElement('summary');
+      summaryEl.style.cssText = 'cursor:pointer; color:#0d6efd; font-size:0.7rem; font-weight:600;';
+      summaryEl.textContent = `Show ${extraPorts.length} more required port(s)`;
+      detailsEl.appendChild(summaryEl);
+
+      const extraWrap = document.createElement('div');
+      extraWrap.style.cssText = 'display:flex; flex-wrap:wrap; gap:5px; margin-top:5px;';
+      extraPorts.forEach(p => extraWrap.appendChild(createPortChip(p)));
+      detailsEl.appendChild(extraWrap);
+      card.appendChild(detailsEl);
+    }
+  }
+
+  // Guidance notes
+  if (notes.length > 0 || fetchErr) {
+    const noteEl = document.createElement('div');
+    noteEl.style.cssText = 'font-size:0.69rem; color:#555; margin-top:3px; line-height:1.35;';
+    noteEl.textContent = fetchErr ? `ℹ ${fetchErr}` : `💡 ${notes.join(' ')}`;
+    card.appendChild(noteEl);
+  }
+
+  // 1-Click Additive Security Group Action Bar (shown whenever missing inbound ports exist on live Infra)
+  if (snapshot && targetSgs.length > 0 && missingPorts.length > 0) {
+    const actionRow = document.createElement('div');
+    actionRow.style.cssText = 'display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px; margin-top:7px; padding-top:7px; border-top:1px dashed #e0c97f;';
+
+    const cidrField = document.createElement('div');
+    cidrField.style.cssText = 'display:flex; flex-direction:column; gap:2px;';
+
+    const cidrLabel = document.createElement('label');
+    cidrLabel.setAttribute('for', 'appAccessCidrInput');
+    cidrLabel.style.cssText = 'font-size:0.68rem; font-weight:600; color:#495057; margin:0;';
+    cidrLabel.textContent = restrictCidrRecommended
+      ? 'Allowed Source CIDR (My IP /32 recommended):'
+      : 'Allowed Source CIDR:';
+    cidrField.appendChild(cidrLabel);
+
+    const cidrInputRow = document.createElement('div');
+    cidrInputRow.style.cssText = 'display:flex; align-items:center; gap:4px;';
+
+    const cidrInput = document.createElement('input');
+    cidrInput.type = 'text';
+    cidrInput.id = 'appAccessCidrInput';
+    cidrInput.name = 'appAccessCidr';
+    cidrInput.value = currentCidr;
+    cidrInput.setAttribute('autocorrect', 'off');
+    cidrInput.setAttribute('autocapitalize', 'none');
+    cidrInput.setAttribute('spellcheck', 'false');
+    cidrInput.setAttribute('aria-describedby', 'appAccessCidrHint');
+    cidrInput.style.cssText = 'width:145px; padding:3px 7px; font-size:0.72rem; font-family:monospace; border:1px solid #ced4da; border-radius:4px; background:#fff;';
+    cidrInput.addEventListener('input', () => {
+      window._appAccessLastCidr = cidrInput.value.trim();
+      if (cidrInput.getAttribute('aria-invalid') === 'true' && window.isValidCidrNotation(cidrInput.value)) {
+        cidrInput.removeAttribute('aria-invalid');
+        cidrInput.style.borderColor = '#ced4da';
+        const hintEl = document.getElementById('appAccessCidrHint');
+        if (hintEl) {
+          hintEl.style.color = '#6c757d';
+          hintEl.textContent = 'Format: x.x.x.x/32 or 0.0.0.0/0 (keeps existing SSH & outbound rules)';
+        }
+      }
+    });
+    cidrInputRow.appendChild(cidrInput);
+
+    const myIpBtn = document.createElement('button');
+    myIpBtn.type = 'button';
+    myIpBtn.textContent = '📍 My IP (/32)';
+    myIpBtn.title = 'Fill your current public IPv4 address as a /32 CIDR';
+    myIpBtn.style.cssText = 'padding:3px 8px; font-size:0.69rem; border:1px solid #0d6efd; border-radius:4px; background:#eef5ff; color:#0d6efd; cursor:pointer; white-space:nowrap;';
+    myIpBtn.addEventListener('click', async () => {
+      myIpBtn.disabled = true;
+      const detected = await window.detectClientPublicCidr();
+      myIpBtn.disabled = false;
+      const liveEl = document.getElementById('appAccessLiveStatus');
+      if (detected) {
+        cidrInput.value = detected;
+        window._appAccessLastCidr = detected;
+        cidrInput.removeAttribute('aria-invalid');
+        cidrInput.style.borderColor = '#ced4da';
+        if (liveEl) liveEl.textContent = `✓ Set source CIDR to ${detected}.`;
+      } else if (liveEl) {
+        liveEl.textContent = '⚠ Could not auto-detect public IP; enter x.x.x.x/32 manually.';
+      }
+    });
+    cidrInputRow.appendChild(myIpBtn);
+
+    if (currentCidr !== '0.0.0.0/0') {
+      const anyIpBtn = document.createElement('button');
+      anyIpBtn.type = 'button';
+      anyIpBtn.textContent = '🌐 0.0.0.0/0';
+      anyIpBtn.style.cssText = 'padding:3px 7px; font-size:0.69rem; border:1px solid #ced4da; border-radius:4px; background:#fff; color:#495057; cursor:pointer; white-space:nowrap;';
+      anyIpBtn.addEventListener('click', () => {
+        cidrInput.value = '0.0.0.0/0';
+        window._appAccessLastCidr = '0.0.0.0/0';
+        cidrInput.removeAttribute('aria-invalid');
+        cidrInput.style.borderColor = '#ced4da';
+      });
+      cidrInputRow.appendChild(anyIpBtn);
+    }
+
+    cidrField.appendChild(cidrInputRow);
+
+    const cidrHint = document.createElement('span');
+    cidrHint.id = 'appAccessCidrHint';
+    cidrHint.style.cssText = 'font-size:0.65rem; color:#6c757d;';
+    cidrHint.textContent = 'Format: x.x.x.x/32 or 0.0.0.0/0 (keeps existing SSH & outbound rules)';
+    cidrField.appendChild(cidrHint);
+
+    actionRow.appendChild(cidrField);
+
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.textContent = `🔓 Open ${missingPorts.length} Missing Port${missingPorts.length > 1 ? 's' : ''}`;
+    openBtn.style.cssText = 'padding:5px 12px; font-size:0.73rem; font-weight:600; border:1px solid #198754; border-radius:4px; background:#198754; color:#fff; cursor:pointer; white-space:nowrap;';
+    openBtn.addEventListener('click', async () => {
+      const cidrVal = cidrInput.value.trim();
+      const liveEl = document.getElementById('appAccessLiveStatus');
+      if (!window.isValidCidrNotation(cidrVal)) {
+        cidrInput.setAttribute('aria-invalid', 'true');
+        cidrInput.style.borderColor = '#dc3545';
+        cidrHint.style.color = '#dc3545';
+        cidrHint.textContent = '⚠ Enter a valid CIDR such as 203.0.113.10/32 or 0.0.0.0/0.';
+        if (liveEl) liveEl.textContent = '⚠ Invalid CIDR format. Use x.x.x.x/32 or 0.0.0.0/0.';
+        cidrInput.focus();
+        return;
+      }
+
+      window._appAccessLastCidr = cidrVal;
+      openBtn.disabled = true;
+      openBtn.textContent = 'Opening ports...';
+
+      const perSgJobs = [];
+      let totalRulesAdded = 0;
+      targetSgs.forEach((sg) => {
+        const rulesForSg = [];
+        missingPorts.forEach((p) => {
+          if (!window.doesSgAllowPort(sg, p.protocol, p.port).allowed) {
+            rulesForSg.push({
+              Direction: 'inbound',
+              Protocol: p.protocol,
+              Ports: p.port,
+              CIDR: cidrVal
+            });
+          }
+        });
+        if (rulesForSg.length > 0) {
+          totalRulesAdded += rulesForSg.length;
+          perSgJobs.push(
+            axios.post(
+              `${tbApiBase()}/ns/${nsId}/resources/securityGroup/${encodeURIComponent(sg.id)}/rules`,
+              { firewallRules: rulesForSg },
+              { auth: { username: cfg.username, password: cfg.password } }
+            ).then(r => ({ sg: sg.name || sg.id, ok: r.data?.success !== false, msg: r.data?.message || '' }))
+             .catch(err => ({ sg: sg.name || sg.id, ok: false, msg: err?.response?.data?.message || err?.message || 'Request failed' }))
+          );
+        }
+      });
+
+      const results = await Promise.all(perSgJobs);
+      const okSgs = results.filter(r => r.ok);
+      const failSgs = results.filter(r => !r.ok);
+
+      window.invalidateAppAccessCache(liveInfraId);
+      await window.updateAppAccessPanel({ forceRefresh: true });
+
+      const refreshedLiveEl = document.getElementById('appAccessLiveStatus');
+      if (refreshedLiveEl) {
+        if (failSgs.length === 0) {
+          refreshedLiveEl.style.color = '#0f5132';
+          refreshedLiveEl.textContent = `✓ Opened ${totalRulesAdded} inbound rule(s) on ${okSgs.length} Security Group(s) (${cidrVal}). Existing SSH & outbound rules preserved.`;
+        } else {
+          refreshedLiveEl.style.color = '#842029';
+          refreshedLiveEl.textContent = `⚠ Updated ${okSgs.length}/${results.length} SG(s); failed on ${failSgs.map(f => `${f.sg}: ${f.msg}`).join('; ')}`;
+        }
+      }
+    });
+    actionRow.appendChild(openBtn);
+    card.appendChild(actionRow);
+  }
+
+  // Polite live status region (announced ONLY on final outcomes/errors, never interstitial loading)
+  const liveStatus = document.createElement('div');
+  liveStatus.id = 'appAccessLiveStatus';
+  liveStatus.setAttribute('role', 'status');
+  liveStatus.setAttribute('aria-live', 'polite');
+  liveStatus.style.cssText = 'font-size:0.69rem; font-weight:600; color:#0f5132; margin-top:4px;';
+  if (prevLiveText) liveStatus.textContent = prevLiveText;
+  card.appendChild(liveStatus);
+
+  panel.replaceChildren(card);
+  panel.style.display = '';
+};
 
 /**
  * Update the script-level quick reference panel (#scriptQuickRef).
@@ -2233,6 +3377,14 @@ window.loadPredefinedScript = function () {
   // Reset the select to allow selecting the same script again
   scriptTypeSelect.selectedIndex = 0;
 
+  // Track active scripts in composer (merges ports/disk checks in Append mode)
+  if (isAppendMode) {
+    const prev = Array.isArray(window._activeComposerScripts) ? window._activeComposerScripts : [];
+    window._activeComposerScripts = prev.includes(scriptType) ? prev : [...prev, scriptType];
+  } else {
+    window._activeComposerScripts = [scriptType];
+  }
+
   // Auto-set label selector based on script's targetLabel (if available)
   window.applyScriptTargetLabel(scriptType);
 
@@ -2244,6 +3396,9 @@ window.loadPredefinedScript = function () {
 
   // Render placeholder input fields for any detected placeholders in commands
   window.renderPlaceholderInputs();
+
+  // Render Application Network (Security Group) & Disk Readiness panel
+  if (window.updateAppAccessPanel) window.updateAppAccessPanel();
 };
 
 // Apply targetLabel from predefined script to Label Selector
@@ -3818,11 +4973,15 @@ window.applyRecentCmd = function(idx) {
   if (!appendMode) {
     const syncToggle = document.getElementById('syncModeToggle');
     if (syncToggle) syncToggle.checked = !!entry.syncMode;
+    window._activeComposerScripts = [];
   }
 
   // Re-render placeholder inputs if available
   if (typeof window.renderPlaceholderInputs === 'function') {
     window.renderPlaceholderInputs();
+  }
+  if (typeof window.updateAppAccessPanel === 'function') {
+    window.updateAppAccessPanel();
   }
 
   // Reset selector

@@ -3126,7 +3126,6 @@ function buildSummaryContent(type, originalData, data) {
           <p><strong>Status:</strong> <span style="color: ${getStatusColor(originalData.status)}">${originalData.status || 'N/A'}</span></p>
           <p><strong>Nodes:</strong> ${originalData.node?.length || 0}</p>
           <p><strong>Description:</strong> ${originalData.description || 'N/A'}</p>
-          <p><strong>Install Mon Agent:</strong> ${originalData.installMonAgent || 'N/A'}</p>
         </div>
       `;
 

@@ -129,8 +129,17 @@ Object.defineProperty(window, 'configNamespace', {
   configurable: true
 });
 
-// Interceptor for X-Credential-Holder
+// Interceptor for X-Credential-Holder (scoped to CB-Tumblebug API requests only
+// so external third-party URLs neither receive internal headers nor fail CORS preflight)
 axios.interceptors.request.use(function (axiosConfig) {
+  const rawUrl = String(axiosConfig.url || '');
+  const base = tbApiBase();
+  const isExternalOrigin = /^https?:\/\//i.test(rawUrl)
+    && !rawUrl.startsWith(base)
+    && !rawUrl.startsWith(window.location.origin);
+  if (isExternalOrigin) {
+    return axiosConfig;
+  }
   const holder = configCredentialHolder || window.getConfig?.()?.credentialHolder;
   if (holder && holder !== '') {
     if (!axiosConfig.headers) {
