@@ -270,23 +270,58 @@ window.copyGuiSshCommand = function(idx) {
 // Builds the node-by-nodeGroup summary HTML block (shared by status + dynamic result views)
 // One secondary line under a node's lifecycle badge for its first-boot init script, in the same
 // vocabulary as the map label: "init waiting", "init 2/3: nginx", "init done", "init ✗ nginx".
-function initScriptRefHtml(nd, esc) {
+function initScriptRefHtml(nd, esc, infraId) {
   const st = nd.initScriptStatus;
   if (!st) return '';
   const msg = nd.initScriptMessage || '';
   const line = (text, color, tip) => `<div style="font-size:11px;margin-top:2px;color:${color};white-space:nowrap;" title="${esc(tip)}">${text}</div>`;
+  // the node keeps its resolved steps, so a failed first boot can be repeated over SSH
+  const rerun = infraId && nd.initScript?.scripts?.length && nd.status === 'Running'
+    ? ` <button onclick="window.rerunInitScript('${esc(infraId)}','${esc(nd.id)}')" style="font-size:10px;padding:0 5px;margin-left:4px;border:1px solid #fca5a5;border-radius:4px;background:#fff;color:#b91c1c;cursor:pointer;" title="run the same init steps again over SSH (as root)">↻ re-run via SSH</button>` : '';
   if (st === 'ok') return line('init done', '#16a34a', 'first-boot init script completed');
   if (st === 'pending') return line('init waiting', '#94a3b8', 'the node has not reported yet (still booting, or no notifier)');
+  if (st === 'noReport') return line('init no report', '#94a3b8', nd.initScriptMessage || 'no report after the timeout: user data did not run, or the notifier is unreachable from this region');
   if (st === 'initializing') {
     const m = /^initializing: (\S+) \((\d+)\/(\d+)\)/.exec(msg);
     return line(m ? `init ${m[2]}/${m[3]}: ${esc(m[1])}` : 'init …', '#0369a1', msg || 'init script running');
   }
   if (st === 'fail') {
     const step = msg.includes(' exit ') ? msg.split(' exit ')[0] : '';
-    return line(`init ✗${step ? ' ' + esc(step) : ''}`, '#dc2626', msg || 'init script failed');
+    return line(`init ✗${step ? ' ' + esc(step) : ''}${rerun}`, '#dc2626', msg || 'init script failed');
   }
   return '';
 }
+
+// Runs a node's init steps again over SSH (same runner as a postCommands templateId). The runner reports
+// the outcome to the notifier, so the node's init status follows this run.
+window.rerunInitScript = async function (infraId, nodeId) {
+  const data = window._currentJsonOutput;
+  const nodes = (window.getInfraNodes ? window.getInfraNodes(data) : null) || data?.node || [];
+  const nd = nodes.find(n => n.id === nodeId);
+  const steps = nd?.initScript?.scripts || [];
+  if (steps.length === 0) { Swal.fire('No init steps', 'This node has no init script steps to run', 'info'); return; }
+  const esc = window.escapeHtml || (x => String(x));
+  const ok = await Swal.fire({
+    title: `Re-run init on ${esc(nodeId)}`,
+    html: `<div style="text-align:left;font-size:13px;">Runs <b>${steps.length}</b> step(s) over SSH as root, in order:<ul style="margin:6px 0 0 18px;">${steps.map(s => `<li><code>${esc(s.name)}</code>${s.continueOnError ? ' <span style="color:#94a3b8;">(optional)</span>' : ''}</li>`).join('')}</ul>
+      <div style="color:#64748b;margin-top:8px;">The result replaces the node's init status.</div></div>`,
+    showCancelButton: true, confirmButtonText: 'Run', confirmButtonColor: '#b91c1c',
+  });
+  if (!ok.isConfirmed) return;
+  const cfg = getConfig();
+  const ns = window.configNamespace || cfg.namespace;
+  const auth = { username: window.configUsername || cfg.username, password: window.configPassword || cfg.password };
+  Swal.fire({ title: `Running init steps on ${esc(nodeId)}…`, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+  try {
+    const res = await axios.post(`${tbApiBase()}/ns/${ns}/cmd/infra/${infraId}?nodeId=${encodeURIComponent(nodeId)}`,
+      { scripts: steps, env: nd.initScript.env || {} }, { auth, timeout: 1800000 });
+    Swal.close();
+    if (window.showRemoteCmdResult) window.showRemoteCmdResult(res.data, '', infraId);
+    else Swal.fire('Done', `<pre style="text-align:left;font-size:11px;">${esc(JSON.stringify(res.data, null, 2))}</pre>`);
+  } catch (e) {
+    Swal.fire('Re-run failed', esc(e.response?.data?.message || e.message), 'error');
+  }
+};
 
 function buildInfraNodeSummaryHtml(data) {
   const esc = window.escapeHtml || (s => String(s));
@@ -390,14 +425,15 @@ function buildInfraNodeSummaryHtml(data) {
 
   // ── Init script results (shown once at least one node has reported) ──
   const initCount = st => nodes.filter(nd => nd.initScriptStatus === st).length;
-  const initOk = initCount('ok'), initFail = initCount('fail'), initRunning = initCount('initializing'), initPending = initCount('pending');
-  if (initOk + initFail + initRunning + initPending > 0) {
+  const initOk = initCount('ok'), initFail = initCount('fail'), initRunning = initCount('initializing'), initPending = initCount('pending'), initNoReport = initCount('noReport');
+  if (initOk + initFail + initRunning + initPending + initNoReport > 0) {
     const parts = [];
     if (initOk) parts.push(`<b style="color:#16a34a;">${initOk} done</b>`);
     if (initRunning) parts.push(`<b style="color:#0369a1;">${initRunning} initializing</b>`);
     if (initPending) parts.push(`<b style="color:#94a3b8;">${initPending} waiting</b>`);
+    if (initNoReport) parts.push(`<b style="color:#94a3b8;">${initNoReport} no report</b>`);
     if (initFail) parts.push(`<b style="color:#dc2626;">${initFail} failed</b>`);
-    html += `<div style="font-size:12px;color:#64748b;margin:-4px 0 12px;font-family:${SANS};" title="first-boot init script progress, reported by each node (waiting: no report yet)">
+    html += `<div style="font-size:12px;color:#64748b;margin:-4px 0 12px;font-family:${SANS};" title="first-boot init script progress, reported by each node (waiting: no report yet; no report: nothing within the timeout)">
       init script: ${parts.join(' · ')}
     </div>`;
   }
@@ -627,11 +663,10 @@ function buildInfraNodeSummaryHtml(data) {
       const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
       const isNew = newNodeSet.has(nd.id);
 
-      const monIcon = nd.monAgentStatus === 'installed' ? '📡✓' : nd.monAgentStatus === 'failed' ? '📡✗' : '';
       const netIcon = nd.networkAgentStatus === 'installed' ? '🔗✓' : nd.networkAgentStatus === 'failed' ? '🔗✗' : '';
-      const agentIcons = [monIcon, netIcon].filter(Boolean).join(' ');
+      const agentIcons = [netIcon].filter(Boolean).join(' ');
       // Init script progress is reference information next to the lifecycle status (reported by the node itself)
-      const initRef = initScriptRefHtml(nd, esc);
+      const initRef = initScriptRefHtml(nd, esc, data.id);
       const statusCell = getInfraStatusBadge(nd.status)
         + (agentIcons ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px;">${agentIcons}</span>` : '')
         + (nd.targetAction && nd.targetAction !== 'None' ? `<div style="font-size:11px;color:#d97706;margin-top:2px;">⏳${esc(nd.targetAction)}</div>` : '')
@@ -737,6 +772,7 @@ function displayInfraStatusGui(data) {
             style="padding:7px 14px;font-size:13px;font-family:inherit;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-right:auto;">
             🔄 Retry Failed (${data.statusCount.countFailed})
           </button>` : ''}
+          <span id="infra-card-grafana"></span>
           <button type="button" onclick="downloadAllSshKeys()"
             style="padding:7px 14px;font-size:13px;font-family:inherit;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;">
             📦 SSH Keys
@@ -765,8 +801,19 @@ let _infraCardTimer = null;
 function stopInfraCardLiveRefresh() {
   if (_infraCardTimer) { clearInterval(_infraCardTimer); _infraCardTimer = null; }
 }
+// Grafana deep links for the Infra when an observability stack is registered (no-op otherwise)
+async function fillGrafanaLinks(infraId) {
+  const box = document.getElementById('infra-card-grafana');
+  if (!box || typeof window.grafanaLinks !== 'function') return;
+  const links = await window.grafanaLinks(infraId);
+  if (!links || !document.getElementById('infra-card-grafana')) return;
+  const btn = (href, label) => `<a href="${href}" target="_blank" rel="noopener" style="display:inline-block;padding:7px 12px;font-size:13px;background:#f59e0b;color:white;border-radius:6px;text-decoration:none;font-weight:600;margin-right:6px;">${label}</a>`;
+  box.innerHTML = btn(links.overview, '📈 Metrics') + btn(links.logs, '📜 Logs');
+}
+
 function startInfraCardLiveRefresh(infraId, initial, renderLive) {
   stopInfraCardLiveRefresh();
+  fillGrafanaLinks(infraId);
   const cfg = getConfig();
   const ns = window.configNamespace || cfg.namespace;
   const auth = { username: window.configUsername || cfg.username, password: window.configPassword || cfg.password };
@@ -1426,6 +1473,7 @@ function displayInfraDynamicResultGui(data) {
         <div id="infra-card-live">${buildPostCommandStatusHtml(data)}${buildInfraNodeSummaryHtml(data)}</div>
         <div id="infra-card-live-note" style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;"></div>
         <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap;">
+          <span id="infra-card-grafana"></span>
           <button type="button" onclick="downloadAllSshKeys(window._currentInfraId)"
             style="padding:7px 18px;font-size:13px;font-family:inherit;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;letter-spacing:0.01em;">
             📦 Download SSH Keys (ZIP)

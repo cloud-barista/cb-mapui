@@ -13,6 +13,66 @@ const errorAlert = (msg) => (window.errorAlert ? window.errorAlert(msg) : Swal.f
 const successAlert = (msg) => (window.successAlert ? window.successAlert(msg) : Swal.fire({ icon: 'success', title: msg, showConfirmButton: false, timer: 2500 }));
 const getNodeGroupIdFromNodeSelection = () => (window.getNodeGroupIdFromNodeSelection ? window.getNodeGroupIdFromNodeSelection() : '');
 
+function _getAppPortPresets() {
+  if (Array.isArray(window.APP_PORT_PRESETS) && window.APP_PORT_PRESETS.length > 0) {
+    return window.APP_PORT_PRESETS;
+  }
+  return [
+    { id: 'vllm', group: 'LLM & AI Agents', label: 'vLLM OpenAI API (TCP 8000)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '8000' }] },
+    { id: 'ollama-webui', group: 'LLM & AI Agents', label: 'Ollama + Open WebUI (TCP 80, 3000)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '80' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '3000' }] },
+    { id: 'k8s-cp', group: 'Kubernetes & KServe', label: 'Kubernetes API Server (TCP 6443)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '6443' }] },
+    { id: 'web-http-https', group: 'Platform, OpenStack & Apps', label: 'Web Server HTTP/HTTPS (TCP 80, 443)', rules: [{ Direction: 'inbound', Protocol: 'TCP', Ports: '80' }, { Direction: 'inbound', Protocol: 'TCP', Ports: '443' }] }
+  ];
+}
+
+function _validateCidr(cidr) {
+  if (typeof window.isValidCidrNotation === 'function') return window.isValidCidrNotation(cidr);
+  const s = String(cidr || '').trim();
+  return /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(s) || (s.includes(':') && /\/\d{1,3}$/.test(s));
+}
+
+function _populateAppPresetSelect(selectEl, placeholderText) {
+  selectEl.replaceChildren();
+  const defOpt = document.createElement('option');
+  defOpt.value = '';
+  defOpt.textContent = placeholderText || '-- Select an application port preset --';
+  selectEl.appendChild(defOpt);
+
+  const presets = _getAppPortPresets();
+  const byGroup = new Map();
+  presets.forEach((p, idx) => {
+    const g = p.group || 'Applications';
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push({ preset: p, idx });
+  });
+
+  byGroup.forEach((items, groupName) => {
+    const og = document.createElement('optgroup');
+    og.label = groupName;
+    items.forEach(({ preset, idx }) => {
+      const opt = document.createElement('option');
+      opt.value = String(idx);
+      opt.textContent = preset.label;
+      og.appendChild(opt);
+    });
+    selectEl.appendChild(og);
+  });
+}
+
+function _sgHasExactRule(sg, dir, proto, portSpec, cidr) {
+  const rules = Array.isArray(sg && sg.firewallRules) ? sg.firewallRules : [];
+  const d = String(dir || 'inbound').toLowerCase();
+  const p = String(proto || 'TCP').toUpperCase();
+  const pt = String(portSpec || '').trim();
+  const c = String(cidr || '0.0.0.0/0').trim();
+  return rules.some((r) =>
+    String(r.Direction || r.direction || '').toLowerCase() === d &&
+    String(r.Protocol || r.protocol || '').toUpperCase() === p &&
+    String(r.Port ?? r.port ?? r.Ports ?? '').trim() === pt &&
+    String(r.CIDR || r.cidr || '').trim() === c
+  );
+}
+
 function updateFirewallRules(opts) {
   var config = getConfig(); var hostname = config.hostname;
   var port = config.port;
@@ -23,8 +83,9 @@ function updateFirewallRules(opts) {
   // right-click) target a specific Infra and pre-open that SG's tab.
   var infraId = (opts && opts.infraId) || (window.infraidElement ? window.infraidElement.value : (document.getElementById("infraid")?.value || ''));
   var preselectSgId = (opts && opts.preselectSgId) || '';
+  window._lastManagedSgContext = { infraId, preselectSgId };
   var nodegroupid = getNodeGroupIdFromNodeSelection();
-  var nodeid = document.getElementById("nodeid").value;
+  var nodeid = document.getElementById("nodeid")?.value || '';
 
   if (!nsId) {
     errorAlert("Please select a namespace first");
@@ -226,6 +287,7 @@ function updateFirewallRules(opts) {
         html: `
           <div>
             ${summaryHtml}
+            <div id="sgAppPresetsContainer" style="margin: 15px 0;"></div>
             <div style="margin: 15px 0; padding: 12px; background: #e8f4fd; border-radius: 6px; border-left: 4px solid #0066cc;">
               <div style="font-weight: 600; color: #0066cc; margin-bottom: 8px; font-size: 13px;">📋 Frequently Used Rules</div>
               <div>${presetHtml}</div>
@@ -435,6 +497,284 @@ function updateFirewallRules(opts) {
           if (outboundAllPresetIdx >= 0) {
             window.insertPresetRule(outboundAllPresetIdx);
           }
+
+          // Build 🚀 Application Port Presets bar programmatically (non-destructive additive or bulk insert)
+          const appPresetContainer = document.getElementById('sgAppPresetsContainer');
+          if (appPresetContainer) {
+            const box = document.createElement('div');
+            box.style.cssText = 'padding:12px; background:#f3fbf5; border-radius:6px; border-left:4px solid #198754; text-align:left;';
+
+            const heading = document.createElement('div');
+            heading.style.cssText = 'font-weight:600; color:#0f5132; margin-bottom:8px; font-size:13px;';
+            heading.textContent = '🚀 Application Port Presets (vLLM, Ollama, K8s, KServe, MCP, Ray, Monitoring, OpenStack, M-CMP…)';
+            box.appendChild(heading);
+
+            const controlsRow = document.createElement('div');
+            controlsRow.style.cssText = 'display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px;';
+
+            const appField = document.createElement('div');
+            appField.style.cssText = 'display:flex; flex-direction:column; gap:3px; flex:2; min-width:260px;';
+            const appLabel = document.createElement('label');
+            appLabel.setAttribute('for', 'sgAppPresetSelect');
+            appLabel.style.cssText = 'font-size:11px; font-weight:600; color:#333; margin:0;';
+            appLabel.textContent = 'Application Preset';
+            const appSelect = document.createElement('select');
+            appSelect.id = 'sgAppPresetSelect';
+            appSelect.name = 'sgAppPresetSelect';
+            appSelect.className = 'form-control';
+            appSelect.style.cssText = 'font-size:12px; padding:4px 8px; height:auto;';
+            _populateAppPresetSelect(appSelect, '-- Select an application --');
+            appField.appendChild(appLabel);
+            appField.appendChild(appSelect);
+            controlsRow.appendChild(appField);
+
+            const cidrField = document.createElement('div');
+            cidrField.style.cssText = 'display:flex; flex-direction:column; gap:3px;';
+            const cidrLabel = document.createElement('label');
+            cidrLabel.setAttribute('for', 'sgAppPresetCidr');
+            cidrLabel.style.cssText = 'font-size:11px; font-weight:600; color:#333; margin:0;';
+            cidrLabel.textContent = 'Allowed Source CIDR';
+            const cidrRow = document.createElement('div');
+            cidrRow.style.cssText = 'display:flex; align-items:center; gap:5px;';
+            const cidrInput = document.createElement('input');
+            cidrInput.type = 'text';
+            cidrInput.id = 'sgAppPresetCidr';
+            cidrInput.name = 'sgAppPresetCidr';
+            cidrInput.value = '0.0.0.0/0';
+            cidrInput.setAttribute('autocorrect', 'off');
+            cidrInput.setAttribute('autocapitalize', 'none');
+            cidrInput.setAttribute('spellcheck', 'false');
+            cidrInput.className = 'form-control';
+            cidrInput.style.cssText = 'width:155px; font-size:12px; padding:4px 8px; height:auto; font-family:monospace;';
+            cidrInput.addEventListener('input', () => {
+              if (cidrInput.getAttribute('aria-invalid') === 'true' && _validateCidr(cidrInput.value)) {
+                cidrInput.removeAttribute('aria-invalid');
+                cidrInput.style.borderColor = '';
+              }
+            });
+
+            const myIpBtn = document.createElement('button');
+            myIpBtn.type = 'button';
+            myIpBtn.className = 'btn btn-outline-primary btn-sm';
+            myIpBtn.style.cssText = 'font-size:11px; padding:4px 8px; white-space:nowrap;';
+            myIpBtn.textContent = '📍 My IP (/32)';
+            myIpBtn.addEventListener('click', async () => {
+              if (typeof window.detectClientPublicCidr !== 'function') return;
+              myIpBtn.disabled = true;
+              const detected = await window.detectClientPublicCidr();
+              myIpBtn.disabled = false;
+              const statusEl = document.getElementById('sgAppPresetLiveStatus');
+              if (detected) {
+                cidrInput.value = detected;
+                cidrInput.removeAttribute('aria-invalid');
+                cidrInput.style.borderColor = '';
+                if (statusEl) statusEl.textContent = `✓ Set Allowed Source CIDR to ${detected}.`;
+              } else if (statusEl) {
+                statusEl.textContent = '⚠ Could not auto-detect public IP; enter x.x.x.x/32 manually.';
+              }
+            });
+
+            cidrRow.appendChild(cidrInput);
+            cidrRow.appendChild(myIpBtn);
+            cidrField.appendChild(cidrLabel);
+            cidrField.appendChild(cidrRow);
+            controlsRow.appendChild(cidrField);
+
+            const btnsWrap = document.createElement('div');
+            btnsWrap.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; gap:6px;';
+
+            const addAdditiveBtn = document.createElement('button');
+            addAdditiveBtn.type = 'button';
+            addAdditiveBtn.className = 'btn btn-success btn-sm';
+            addAdditiveBtn.style.cssText = 'font-size:11px; font-weight:600; padding:5px 10px; white-space:nowrap;';
+            addAdditiveBtn.textContent = '➕ Add Missing Ports to Infra SGs (Keep Existing)';
+
+            const insertBulkBtn = document.createElement('button');
+            insertBulkBtn.type = 'button';
+            insertBulkBtn.className = 'btn btn-outline-secondary btn-sm';
+            insertBulkBtn.style.cssText = 'font-size:11px; padding:5px 10px; white-space:nowrap;';
+            insertBulkBtn.textContent = '📝 Insert into Bulk Table';
+
+            btnsWrap.appendChild(addAdditiveBtn);
+            btnsWrap.appendChild(insertBulkBtn);
+            controlsRow.appendChild(btnsWrap);
+            box.appendChild(controlsRow);
+
+            const hintLine = document.createElement('div');
+            hintLine.style.cssText = 'font-size:11px; color:#555; margin-top:6px;';
+            hintLine.textContent = 'Tip: "Add Missing Ports to Infra SGs" safely appends only missing rules via POST /rules while preserving SSH (22) and outbound rules.';
+            box.appendChild(hintLine);
+
+            const statusRow = document.createElement('div');
+            statusRow.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:5px;';
+            const liveStatus = document.createElement('div');
+            liveStatus.id = 'sgAppPresetLiveStatus';
+            liveStatus.setAttribute('role', 'status');
+            liveStatus.setAttribute('aria-live', 'polite');
+            liveStatus.style.cssText = 'font-size:11px; font-weight:600; color:#0f5132;';
+            statusRow.appendChild(liveStatus);
+            box.appendChild(statusRow);
+
+            appSelect.addEventListener('change', () => {
+              const presets = _getAppPortPresets();
+              const p = presets[Number(appSelect.value)];
+              if (p && p.restrictCidrRecommended) {
+                hintLine.textContent = '⚠ Security note: this application exposes an unauthenticated dashboard/API — click "📍 My IP (/32)" before opening ports.';
+                hintLine.style.color = '#664d03';
+              } else {
+                hintLine.textContent = 'Tip: "Add Missing Ports to Infra SGs" safely appends only missing rules via POST /rules while preserving SSH (22) and outbound rules.';
+                hintLine.style.color = '#555';
+              }
+            });
+
+            insertBulkBtn.addEventListener('click', () => {
+              const presets = _getAppPortPresets();
+              const p = presets[Number(appSelect.value)];
+              if (!p) {
+                liveStatus.style.color = '#842029';
+                liveStatus.textContent = '⚠ Select an Application Preset first.';
+                appSelect.focus();
+                return;
+              }
+              const cidrVal = cidrInput.value.trim();
+              if (!_validateCidr(cidrVal)) {
+                cidrInput.setAttribute('aria-invalid', 'true');
+                cidrInput.style.borderColor = '#dc3545';
+                liveStatus.style.color = '#842029';
+                liveStatus.textContent = '⚠ Enter a valid CIDR (e.g. 203.0.113.10/32 or 0.0.0.0/0).';
+                cidrInput.focus();
+                return;
+              }
+              const tbody = document.getElementById('sg-rules-all');
+              const emptyDiv = document.getElementById('sg-rules-all-empty');
+              if (!tbody) return;
+              if (emptyDiv) emptyDiv.style.display = 'none';
+
+              (p.rules || []).forEach((r) => {
+                window.addRuleRowAll();
+                const lastRow = tbody.rows[tbody.rows.length - 1];
+                if (!lastRow) return;
+                const dirSel = lastRow.querySelector('select[name="direction"]');
+                const protoSel = lastRow.querySelector('select[name="protocol"]');
+                const portInp = lastRow.querySelector('input[name="Ports"]');
+                const cidrInp = lastRow.querySelector('input[name="cidr"]');
+                if (dirSel) dirSel.value = (r.Direction || 'inbound').toLowerCase();
+                if (protoSel) {
+                  protoSel.value = (r.Protocol || 'TCP').toUpperCase();
+                  window.togglePortField(protoSel);
+                }
+                if (portInp && !portInp.disabled) portInp.value = r.Ports || '';
+                if (cidrInp) cidrInp.value = cidrVal;
+              });
+
+              liveStatus.style.color = '#0f5132';
+              liveStatus.textContent = `✓ Inserted ${p.rules.length} rule(s) for "${p.label}" into Bulk Table below (include SSH 22 before clicking Apply if you want to keep SSH).`;
+            });
+
+            addAdditiveBtn.addEventListener('click', async () => {
+              const presets = _getAppPortPresets();
+              const p = presets[Number(appSelect.value)];
+              if (!p) {
+                liveStatus.style.color = '#842029';
+                liveStatus.textContent = '⚠ Select an Application Preset first.';
+                appSelect.focus();
+                return;
+              }
+              const cidrVal = cidrInput.value.trim();
+              if (!_validateCidr(cidrVal)) {
+                cidrInput.setAttribute('aria-invalid', 'true');
+                cidrInput.style.borderColor = '#dc3545';
+                liveStatus.style.color = '#842029';
+                liveStatus.textContent = '⚠ Enter a valid CIDR (e.g. 203.0.113.10/32 or 0.0.0.0/0).';
+                cidrInput.focus();
+                return;
+              }
+
+              const jobs = [];
+              let rulesCount = 0;
+              sgList.forEach((sg, sgIdx) => {
+                const missing = (p.rules || []).filter((r) => {
+                  if (_sgHasExactRule(sg, r.Direction || 'inbound', r.Protocol || 'TCP', r.Ports, cidrVal)) return false;
+                  if (cidrVal === '0.0.0.0/0' && typeof window.doesSgAllowPort === 'function') {
+                    const cov = window.doesSgAllowPort(sg, r.Protocol || 'TCP', r.Ports);
+                    if (cov.allowed && cov.cidrs.includes('0.0.0.0/0')) return false;
+                  }
+                  return true;
+                }).map(r => ({
+                  Direction: r.Direction || 'inbound',
+                  Protocol: r.Protocol || 'TCP',
+                  Ports: r.Ports,
+                  CIDR: cidrVal
+                }));
+
+                if (missing.length > 0) {
+                  rulesCount += missing.length;
+                  jobs.push(
+                    axios.post(
+                      `${tbApiBase()}/ns/${nsId}/resources/securityGroup/${encodeURIComponent(sg.id)}/rules`,
+                      { firewallRules: missing },
+                      { auth: { username, password } }
+                    ).then((res) => {
+                      const updatedSg = res.data?.updated;
+                      if (updatedSg && Array.isArray(updatedSg.firewallRules)) {
+                        sg.firewallRules = updatedSg.firewallRules;
+                        const badge = document.querySelector(`#sg-tab-${sgIdx} span:last-child`);
+                        if (badge) badge.textContent = String(sg.firewallRules.length);
+                      }
+                      return { sg: sg.name || sg.id, ok: res.data?.success !== false, msg: res.data?.message || '' };
+                    }).catch(err => ({
+                      sg: sg.name || sg.id,
+                      ok: false,
+                      msg: err?.response?.data?.message || err?.message || 'Request failed'
+                    }))
+                  );
+                }
+              });
+
+              if (jobs.length === 0) {
+                liveStatus.style.color = '#0f5132';
+                liveStatus.textContent = `✓ All ports for "${p.label}" (${cidrVal}) are already open across all ${sgList.length} Security Group(s).`;
+                return;
+              }
+
+              addAdditiveBtn.disabled = true;
+              const origBtnText = addAdditiveBtn.textContent;
+              addAdditiveBtn.textContent = 'Adding rules...';
+              const results = await Promise.all(jobs);
+              addAdditiveBtn.disabled = false;
+              addAdditiveBtn.textContent = origBtnText;
+
+              if (window.invalidateAppAccessCache) window.invalidateAppAccessCache(infraId);
+
+              const ok = results.filter(r => r.ok);
+              const failed = results.filter(r => !r.ok);
+              const existingReloadBtn = document.getElementById('sgAppPresetReloadBtn');
+              if (existingReloadBtn) existingReloadBtn.remove();
+
+              if (failed.length === 0) {
+                liveStatus.style.color = '#0f5132';
+                liveStatus.textContent = `✓ Added ${rulesCount} inbound rule(s) to ${ok.length} Security Group(s) (${cidrVal}). Existing rules preserved.`;
+              } else {
+                liveStatus.style.color = '#842029';
+                liveStatus.textContent = `⚠ Updated ${ok.length}/${results.length} SG(s); failed on ${failed.map(f => `${f.sg}: ${f.msg}`).join('; ')}`;
+              }
+
+              if (ok.length > 0) {
+                const reloadBtn = document.createElement('button');
+                reloadBtn.type = 'button';
+                reloadBtn.id = 'sgAppPresetReloadBtn';
+                reloadBtn.className = 'btn btn-outline-success btn-sm';
+                reloadBtn.style.cssText = 'font-size:10px; padding:2px 8px;';
+                reloadBtn.textContent = '↻ Refresh Rule Tables';
+                reloadBtn.addEventListener('click', () => {
+                  updateFirewallRules({ infraId, preselectSgId });
+                });
+                statusRow.appendChild(reloadBtn);
+              }
+            });
+
+            appPresetContainer.replaceChildren(box);
+          }
         },
         preConfirm: () => {
 
@@ -535,6 +875,7 @@ function updateFirewallRules(opts) {
           });
 
           updatePromise.then((results) => {
+            if (window.invalidateAppAccessCache) window.invalidateAppAccessCache(infraId);
             const successCount = results.filter(r => r.success).length;
             const failedCount = results.filter(r => r.success === false).length;
             const allSuccess = failedCount === 0;
@@ -870,8 +1211,9 @@ function deleteFirewallRule(sgId, sgName, ruleData) {
               confirmButtonText: "Refresh View",
               confirmButtonColor: "#28a745"
             }).then(() => {
-              // Refresh the firewall rules view
-              updateFirewallRules();
+              if (window.invalidateAppAccessCache) window.invalidateAppAccessCache(window._lastManagedSgContext?.infraId);
+              // Refresh the firewall rules view preserving target Infra and active SG tab
+              updateFirewallRules({ ...(window._lastManagedSgContext || {}), preselectSgId: sgId });
             });
           } else {
             throw new Error(responseData.message || 'Failed to delete rule');
@@ -902,20 +1244,23 @@ window.deleteFirewallRule = deleteFirewallRule;
 
 // Function to add new firewall rule to specific security group
 function addNewRuleToSg(sgId, sgName) {
+  let activeMultiProtoPreset = null;
+
   Swal.fire({
     title: `Add New Rule to ${sgName}`,
     html: `
       <div style="text-align: left;">
+        <div id="newRuleAppPresetWrap" style="margin-bottom: 15px; padding: 10px; background: #f3fbf5; border: 1px solid #c3e6cb; border-radius: 6px;"></div>
         <div style="margin-bottom: 15px;">
-          <label style="font-weight: bold; margin-bottom: 5px; display: block;">Direction:</label>
-          <select id="newRuleDirection" class="form-control">
+          <label for="newRuleDirection" style="font-weight: bold; margin-bottom: 5px; display: block;">Direction:</label>
+          <select id="newRuleDirection" name="newRuleDirection" class="form-control">
             <option value="inbound">Inbound</option>
             <option value="outbound">Outbound</option>
           </select>
         </div>
         <div style="margin-bottom: 15px;">
-          <label style="font-weight: bold; margin-bottom: 5px; display: block;">Protocol:</label>
-          <select id="newRuleProtocol" class="form-control" onchange="togglePortFieldIndividual()">
+          <label for="newRuleProtocol" style="font-weight: bold; margin-bottom: 5px; display: block;">Protocol:</label>
+          <select id="newRuleProtocol" name="newRuleProtocol" class="form-control" onchange="togglePortFieldIndividual()">
             <option value="TCP">TCP</option>
             <option value="UDP">UDP</option>
             <option value="ICMP">ICMP</option>
@@ -923,36 +1268,122 @@ function addNewRuleToSg(sgId, sgName) {
           </select>
         </div>
         <div style="margin-bottom: 15px;">
-          <label style="font-weight: bold; margin-bottom: 5px; display: block;">Port:</label>
-          <input type="text" id="newRulePort" class="form-control" placeholder="ex: 22, 80-100, 22,80,443" />
-          <small style="color: #6c757d;">Enter single port (22), port range (80-100), or multiple (22,80,443)</small>
+          <label for="newRulePort" style="font-weight: bold; margin-bottom: 5px; display: block;">Port:</label>
+          <input type="text" id="newRulePort" name="newRulePort" autocorrect="off" autocapitalize="none" spellcheck="false" class="form-control" placeholder="ex: 22, 80-100, 22,80,443" />
+          <small id="newRulePortHint" style="color: #6c757d;">Enter single port (22), port range (80-100), or multiple (22,80,443)</small>
         </div>
         <div style="margin-bottom: 15px;">
-          <label style="font-weight: bold; margin-bottom: 5px; display: block;">CIDR:</label>
-          <input type="text" id="newRuleCidr" class="form-control" placeholder="ex: 0.0.0.0/0, 192.168.1.0/24" value="0.0.0.0/0" />
+          <label for="newRuleCidr" style="font-weight: bold; margin-bottom: 5px; display: block;">CIDR:</label>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <input type="text" id="newRuleCidr" name="newRuleCidr" autocorrect="off" autocapitalize="none" spellcheck="false" class="form-control" placeholder="ex: 0.0.0.0/0, 192.168.1.0/24" value="0.0.0.0/0" />
+            <button type="button" id="newRuleMyIpBtn" class="btn btn-outline-primary btn-sm" style="white-space: nowrap;">📍 My IP (/32)</button>
+          </div>
           <small style="color: #6c757d;">IP address range in CIDR notation</small>
         </div>
         <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 15px;">
           <strong>Quick Templates:</strong><br>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('SSH')" style="margin: 2px;">SSH (22)</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('HTTP')" style="margin: 2px;">HTTP (80)</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('HTTPS')" style="margin: 2px;">HTTPS (443)</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('MYSQL')" style="margin: 2px;">MySQL (3306)</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('POSTGRES')" style="margin: 2px;">PostgreSQL (5432)</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ALL_TCP')" style="margin: 2px;">All TCP Ports</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ALL_UDP')" style="margin: 2px;">All UDP Ports</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ICMP')" style="margin: 2px;">ICMP</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ALL_PROTOCOLS')" style="margin: 2px;">All Protocols</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('SSH')" style="margin: 2px;">SSH (22)</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('HTTP')" style="margin: 2px;">HTTP (80)</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('HTTPS')" style="margin: 2px;">HTTPS (443)</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('MYSQL')" style="margin: 2px;">MySQL (3306)</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('POSTGRES')" style="margin: 2px;">PostgreSQL (5432)</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ALL_TCP')" style="margin: 2px;">All TCP Ports</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ALL_UDP')" style="margin: 2px;">All UDP Ports</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ICMP')" style="margin: 2px;">ICMP</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setQuickTemplate('ALL_PROTOCOLS')" style="margin: 2px;">All Protocols</button>
         </div>
       </div>
     `,
-    width: 500,
+    width: 540,
     showCancelButton: true,
     confirmButtonText: "Add Rule",
     confirmButtonColor: "#28a745",
     cancelButtonText: "Cancel",
     cancelButtonColor: "#6c757d",
     didOpen: () => {
+      // Populate Application Preset selector programmatically
+      const presetWrap = document.getElementById('newRuleAppPresetWrap');
+      if (presetWrap) {
+        const lbl = document.createElement('label');
+        lbl.setAttribute('for', 'newRuleAppPreset');
+        lbl.style.cssText = 'font-weight: bold; font-size: 12px; color: #0f5132; margin-bottom: 4px; display: block;';
+        lbl.textContent = '🚀 Application Port Preset (auto-fills ports):';
+        const sel = document.createElement('select');
+        sel.id = 'newRuleAppPreset';
+        sel.name = 'newRuleAppPreset';
+        sel.className = 'form-control';
+        sel.style.cssText = 'font-size: 12px;';
+        _populateAppPresetSelect(sel, '-- Choose application preset (optional) --');
+
+        const note = document.createElement('small');
+        note.style.cssText = 'display:block; margin-top:4px; color:#495057; font-size:11px;';
+        note.textContent = 'Existing rules in this Security Group are kept intact.';
+
+        sel.addEventListener('change', () => {
+          const presets = _getAppPortPresets();
+          const p = presets[Number(sel.value)];
+          const dirSel = document.getElementById('newRuleDirection');
+          const protoSel = document.getElementById('newRuleProtocol');
+          const portInp = document.getElementById('newRulePort');
+          const portHint = document.getElementById('newRulePortHint');
+          if (!p || !Array.isArray(p.rules) || p.rules.length === 0) {
+            activeMultiProtoPreset = null;
+            return;
+          }
+          const protos = Array.from(new Set(p.rules.map(r => String(r.Protocol || 'TCP').toUpperCase())));
+          dirSel.value = 'inbound';
+          if (protos.length === 1) {
+            activeMultiProtoPreset = null;
+            protoSel.value = protos[0];
+            togglePortFieldIndividual();
+            portInp.value = p.rules.map(r => r.Ports).join(',');
+            if (portHint) {
+              portHint.textContent = `Preset "${p.label}" (${protos[0]} ${portInp.value})`;
+            }
+          } else {
+            activeMultiProtoPreset = p;
+            protoSel.value = protos[0];
+            togglePortFieldIndividual();
+            portInp.value = p.rules.filter(r => String(r.Protocol).toUpperCase() === protos[0]).map(r => r.Ports).join(',');
+            if (portHint) {
+              portHint.textContent = `Multi-protocol preset "${p.label}" — will add both ${p.rules.map(r => `${r.Protocol} ${r.Ports}`).join(', ')}.`;
+            }
+          }
+          if (p.restrictCidrRecommended) {
+            note.textContent = '⚠ Unauthenticated UI/API — click "📍 My IP (/32)" below to restrict access.';
+            note.style.color = '#664d03';
+          } else {
+            note.textContent = 'Existing rules in this Security Group are kept intact.';
+            note.style.color = '#495057';
+          }
+        });
+
+        presetWrap.appendChild(lbl);
+        presetWrap.appendChild(sel);
+        presetWrap.appendChild(note);
+      }
+
+      // Clear multi-protocol override if user manually edits direction, protocol, or port
+      ['newRuleDirection', 'newRuleProtocol', 'newRulePort'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', () => { activeMultiProtoPreset = null; });
+          el.addEventListener('change', () => { activeMultiProtoPreset = null; });
+        }
+      });
+
+      const myIpBtn = document.getElementById('newRuleMyIpBtn');
+      if (myIpBtn) {
+        myIpBtn.addEventListener('click', async () => {
+          if (typeof window.detectClientPublicCidr !== 'function') return;
+          myIpBtn.disabled = true;
+          const detected = await window.detectClientPublicCidr();
+          myIpBtn.disabled = false;
+          const cidrInp = document.getElementById('newRuleCidr');
+          if (detected && cidrInp) cidrInp.value = detected;
+        });
+      }
+
       // Function to toggle port field for individual rule addition
       function togglePortFieldIndividual() {
         const protocolSelect = document.getElementById("newRuleProtocol");
@@ -979,6 +1410,7 @@ function addNewRuleToSg(sgId, sgName) {
       
       // Define quick template function
       window.setQuickTemplate = function(template) {
+        activeMultiProtoPreset = null;
         const protocolSelect = document.getElementById("newRuleProtocol");
         const portInput = document.getElementById("newRulePort");
         const cidrInput = document.getElementById("newRuleCidr");
@@ -1054,16 +1486,37 @@ function addNewRuleToSg(sgId, sgName) {
       }
       
       // Basic CIDR validation
-      if (!cidr.includes('/')) {
-        Swal.showValidationMessage("CIDR must include network prefix (e.g., 0.0.0.0/0)");
+      if (!_validateCidr(cidr)) {
+        Swal.showValidationMessage("Enter a valid CIDR notation (e.g., 0.0.0.0/0 or 203.0.113.10/32)");
         return false;
       }
-      
-      return { direction, protocol, port: port || "", cidr };
+
+      const rulesPayload = activeMultiProtoPreset
+        ? activeMultiProtoPreset.rules.map(r => ({
+            Direction: r.Direction || 'inbound',
+            Protocol: r.Protocol || 'TCP',
+            Ports: r.Ports || '',
+            CIDR: cidr
+          }))
+        : (port && (protocol === 'TCP' || protocol === 'UDP')
+            ? port.split(',').map(s => s.trim()).filter(Boolean).map(pt => ({
+                Direction: direction,
+                Protocol: protocol,
+                Ports: pt,
+                CIDR: cidr
+              }))
+            : [{
+                Direction: direction,
+                Protocol: protocol,
+                Ports: port || "",
+                CIDR: cidr
+              }]);
+
+      return { direction, protocol, port: port || "", cidr, rulesPayload };
     }
   }).then((result) => {
     if (result.isConfirmed) {
-      const { direction, protocol, port, cidr } = result.value;
+      const { direction, protocol, port, cidr, rulesPayload } = result.value;
       
       // Show loading
       Swal.fire({
@@ -1077,55 +1530,59 @@ function addNewRuleToSg(sgId, sgName) {
         }
       });
 
-      var config = getConfig(); var hostname = config.hostname;
-      var portVal = config.port;
+      var config = getConfig();
       var username = config.username;
       var password = config.password;
       var nsId = config.namespace || window.configNamespace || '';
 
-      // Prepare request data for addition
-      const newRule = {
-        Direction: direction,
-        Protocol: protocol,
-        Ports: port,
-        CIDR: cidr
-      };
+      // Fetch current SG first to skip exact duplicates so multi-port presets never fail on partial overlap
+      axios.get(`${tbApiBase()}/ns/${nsId}/resources/securityGroup/${encodeURIComponent(sgId)}`, {
+        auth: { username, password }
+      }).catch(() => ({ data: null })).then((sgGetRes) => {
+        const currentSg = sgGetRes.data;
+        const filteredRules = currentSg
+          ? rulesPayload.filter(r => !_sgHasExactRule(currentSg, r.Direction, r.Protocol, r.Ports, r.CIDR))
+          : rulesPayload;
 
-      axios({
-        method: "post",
-        url: `${tbApiBase()}/ns/${nsId}/resources/securityGroup/${sgId}/rules`,
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({
-          firewallRules: [newRule]
-        }),
-        auth: { username, password },
+        if (filteredRules.length === 0) {
+          return { data: { success: true, message: 'All specified rules already exist on this Security Group.' } };
+        }
+
+        return axios({
+          method: "post",
+          url: `${tbApiBase()}/ns/${nsId}/resources/securityGroup/${encodeURIComponent(sgId)}/rules`,
+          headers: { "Content-Type": "application/json" },
+          data: JSON.stringify({
+            firewallRules: filteredRules
+          }),
+          auth: { username, password },
+        });
       }).then((response) => {
         const responseData = response.data;
         // Check if the response indicates success
         const isSuccess = responseData.success !== false;
         
         if (isSuccess) {
+          if (window.invalidateAppAccessCache) window.invalidateAppAccessCache(window._lastManagedSgContext?.infraId);
+          const summaryLines = rulesPayload.map(r => `${r.Direction} · ${r.Protocol}${r.Ports ? ` ${r.Ports}` : ''} · ${r.CIDR}`).join('<br>');
           Swal.fire({
             title: "✅ Rule Added Successfully",
             html: `
               <div style="text-align: left;">
-                <p>The new firewall rule has been successfully added to security group <strong>${sgName}</strong>.</p>
-                <div style="background: #d4edda; padding: 10px; border-radius: 4px; border-left: 4px solid #28a745; margin-top: 10px;">
-                  <strong>Added Rule:</strong><br>
-                  Direction: ${newRule.Direction}<br>
-                  Protocol: ${newRule.Protocol}<br>
-                  ${newRule.Ports ? `Port: ${newRule.Ports}<br>` : ''}
-                  CIDR: ${newRule.CIDR}
+                <p>The firewall rule(s) have been processed for security group <strong>${escapeHtml(sgName)}</strong>.</p>
+                <div style="background: #d4edda; padding: 10px; border-radius: 4px; border-left: 4px solid #28a745; margin-top: 10px; font-size: 12px;">
+                  <strong>Rule(s):</strong><br>
+                  ${summaryLines}
                 </div>
-                ${responseData.message ? `<p style="margin-top: 10px; color: #28a745;"><strong>Message:</strong> ${responseData.message}</p>` : ''}
+                ${responseData.message ? `<p style="margin-top: 10px; color: #28a745;"><strong>Message:</strong> ${escapeHtml(responseData.message)}</p>` : ''}
               </div>
             `,
             icon: "success",
             confirmButtonText: "Refresh View",
             confirmButtonColor: "#28a745"
           }).then(() => {
-            // Refresh the firewall rules view
-            updateFirewallRules();
+            // Refresh the firewall rules view preserving target Infra and SG tab
+            updateFirewallRules({ ...(window._lastManagedSgContext || {}), preselectSgId: sgId });
           });
         } else {
           throw new Error(responseData.message || 'Failed to add rule');
