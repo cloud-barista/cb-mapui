@@ -25,7 +25,7 @@ const collectCommands = (...args) => (window.collectCommands ? window.collectCom
 const autoResizeTextarea = (...args) => (window.autoResizeTextarea ? window.autoResizeTextarea(...args) : undefined);
 const setDefaultRemoteCommandsByApp = (...args) => (window.setDefaultRemoteCommandsByApp ? window.setDefaultRemoteCommandsByApp(...args) : undefined);
 const displayAccessInfoGui = (...args) => (window.displayAccessInfoGui ? window.displayAccessInfoGui(...args) : undefined);
-const buildPostCommandStatusHtml = (...args) => (window.buildPostCommandStatusHtml ? window.buildPostCommandStatusHtml(...args) : '');
+const buildPostScriptStatusHtml = (...args) => (window.buildPostScriptStatusHtml ? window.buildPostScriptStatusHtml(...args) : '');
 const errorAlert = (msg) => (window.errorAlert ? window.errorAlert(msg) : Swal.fire({ icon: 'error', title: msg, showConfirmButton: true }));
 const displayJsonData = (...args) => { if (window.displayJsonData) window.displayJsonData(...args); };
 const typeInfo = window.typeInfo || 'info';
@@ -904,7 +904,7 @@ window.collectNodeGroupConfig = function () {
 
 // ── Shared command composer ─
 // Single source for the "Predefined Scripts / Parameters / Commands" UI used by
-// the Application Deployment popup, the post-deployment command dialog, and the
+// the Application Deployment popup, the post-deployment script dialog, and the
 // NodeGroup add dialog. The markup is the one from Application Deployment, so
 // that popup renders identically after the extraction.
 //
@@ -916,7 +916,7 @@ window.generateCommandComposerHtml = function (opts = {}) {
     showScripts: true,             // 📜 Predefined Scripts (with category tabs)
     showParams: true,              // 📋 Parameters (consolidated placeholder panel)
     showCommands: true,            // ⌨️ Commands
-    showPhases: false,             // ordered post-deployment phases (postCommands[])
+    showPhases: false,             // ordered post-deployment phases (postScript.phases[])
     showLabelSelector: false,      // target filter by labels
     labelSelectorOptional: true,
     includeDeployOptions: true,    // show the 'platform' script category
@@ -1035,7 +1035,7 @@ window.generateCommandComposerHtml = function (opts = {}) {
 
 // ── Post-deployment phase editor ─
 // Optional multi-phase bootstrap: each phase runs in order against its own
-// target (all nodes / nodeGroup / labelSelector). Server contract: postCommands[].
+// target (all nodes / nodeGroup / labelSelector). Server contract: postScript.phases[].
 window.generatePhaseEditorHtml = function () {
   return `
     <div id="phaseEditorWrap" style="display:none; margin-top:10px; border:1px solid #b3d7ff; border-radius:8px; padding:10px; background:#f8fbff;">
@@ -1114,7 +1114,7 @@ window.addPhaseBlock = function () {
   list.appendChild(block);
 };
 
-// Returns postCommands[] when the phase editor is active, else null
+// Returns postScript.phases[] when the phase editor is active, else null
 window.collectPhases = function () {
   const toggle = document.getElementById('usePhasesToggle');
   if (!toggle || !toggle.checked) return null;
@@ -4105,7 +4105,7 @@ function startStreamingSession(streamUrl, username, password, xRequestId, infraI
     // result instead of leaving the user with a scary timeout message.
     if (elapsed > 8 && Object.keys(session.nodeState).length === 0 && !session._fallbackTried) {
       session._fallbackTried = true;
-      tryPostCommandResultFallback(session);
+      tryPostScriptResultFallback(session);
     }
     if (elapsed > 60 && Object.keys(session.nodeState).length === 0) {
       session.error = 'No events received within 60 seconds. The command may have failed silently.';
@@ -4125,7 +4125,7 @@ function startStreamingSession(streamUrl, username, password, xRequestId, infraI
  * already finished. Read the Infra and render its stored post-deployment result so
  * the user sees the outcome instead of an empty stream.
  */
-function tryPostCommandResultFallback(session) {
+function tryPostScriptResultFallback(session) {
   if (!session || !session.infraId) return;
   const cfg = getConfig();
   const ns = window.configNamespace || cfg.namespace || '';
@@ -4133,7 +4133,7 @@ function tryPostCommandResultFallback(session) {
           auth: { username: cfg.username, password: cfg.password } })
     .then((res) => {
       const data = res.data || {};
-      const status = data.postCommandStatus;
+      const status = data.postScriptStatus;
       if (!status || status === 'Running' || status === 'None') return; // still running: keep waiting
       Swal.close();
       Swal.fire({
@@ -4144,7 +4144,7 @@ function tryPostCommandResultFallback(session) {
             <div style="font-size:0.82rem;color:#475569;margin-bottom:8px;">
               The bootstrap had already finished when the stream was opened, so the recorded result is shown.
             </div>
-            ${buildPostCommandStatusHtml(data)}
+            ${buildPostScriptStatusHtml(data)}
           </div>`,
         showConfirmButton: false, showCancelButton: true, cancelButtonText: '✕ Close',
       });

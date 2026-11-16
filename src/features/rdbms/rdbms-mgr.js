@@ -500,13 +500,15 @@ const DEFAULT_BASTION_TEMPLATE = {
       { name: 'g-ibm', nodeGroupSize: 1, specId: 'ibm+us-south+bxf-2x8', imageId: 'r006-23020f83-9547-4501-a96a-a28b96671308', rootDiskType: 'default', rootDiskSize: 30 },
       { name: 'g-openstack', nodeGroupSize: 1, specId: 'openstack+regionone+m1.medium', imageId: '0b583339-0a62-4e5d-9cfb-4666539961d0', rootDiskType: 'default', rootDiskSize: 40 },
     ],
-    postCommands: [
-      {
-        command: [
-          'for i in 1 2 3 4 5 6 7 8 9 10; do sudo apt-get update -y && (sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-client netcat-openbsd || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-client netcat-openbsd) && break || (sudo yum install -y mariadb nc && break) || sleep 5; done',
-        ],
-      },
-    ],
+    postScript: {
+      phases: [
+        {
+          command: [
+            'for i in 1 2 3 4 5 6 7 8 9 10; do sudo apt-get update -y && (sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-client netcat-openbsd || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-client netcat-openbsd) && break || (sudo yum install -y mariadb nc && break) || sleep 5; done',
+          ],
+        },
+      ],
+    },
   },
 };
 
@@ -2739,13 +2741,15 @@ async function runBastionSetDeployInBackground(op, targets, selectedCsps, engine
       const infraReq = {
         name: t.infraName,
         nodeGroups: [t.nodeGroup],
-        postCommands: template.infraDynamicReq?.postCommands || [
-          {
-            command: [
-              'for i in 1 2 3 4 5 6 7 8 9 10; do sudo apt-get update -y && (sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-client netcat-openbsd || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-client netcat-openbsd) && break || (sudo yum install -y mariadb nc && break) || sleep 5; done',
-            ],
-          },
-        ],
+        postScript: template.infraDynamicReq?.postScript || {
+          phases: [
+            {
+              command: [
+                'for i in 1 2 3 4 5 6 7 8 9 10; do sudo apt-get update -y && (sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-client netcat-openbsd || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-client netcat-openbsd) && break || (sudo yum install -y mariadb nc && break) || sleep 5; done',
+              ],
+            },
+          ],
+        },
       };
 
       try {

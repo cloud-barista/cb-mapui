@@ -292,7 +292,7 @@ function initScriptRefHtml(nd, esc, infraId) {
   return '';
 }
 
-// Runs a node's init steps again over SSH (same runner as a postCommands templateId). The runner reports
+// Runs a node's init steps again over SSH (same runner as a postScript phase templateId). The runner reports
 // the outcome to the notifier, so the node's init status follows this run.
 window.rerunInitScript = async function (infraId, nodeId) {
   const data = window._currentJsonOutput;
@@ -1370,23 +1370,24 @@ function displayAccessInfoGui(data, infraId) {
 }
 
 // Rich GUI for infraDynamic provisioning result (replaces raw JSON in proceedWithInfraCreation)
-// Render post-deployment command outcome (postCommandStatus/postCommandResults).
+// Render the post-deployment script outcome (postScriptStatus/postScriptResults).
 // Bootstrap failures must be visible: infra creation can succeed while commands fail.
-function buildPostCommandStatusHtml(data) {
+function buildPostScriptStatusHtml(data) {
   const esc = window.escapeHtml || (s => String(s));
-  const status = data.postCommandStatus;
+  const status = data.postScriptStatus;
   if (!status || status === 'None') return '';
 
   const style = {
-    Running:             { bg: '#eff6ff', border: '#93c5fd', fg: '#1d4ed8', icon: '⏳', label: 'Post-deployment commands are running in the background' },
-    Completed:           { bg: '#f0fdf4', border: '#86efac', fg: '#15803d', icon: '✅', label: 'Post-deployment commands completed' },
-    CompletedWithErrors: { bg: '#fffbeb', border: '#fcd34d', fg: '#b45309', icon: '⚠️', label: 'Post-deployment commands completed with errors' },
-    Failed:              { bg: '#fef2f2', border: '#fca5a5', fg: '#b91c1c', icon: '❌', label: 'Post-deployment commands failed' },
-    Skipped:             { bg: '#f8fafc', border: '#cbd5e1', fg: '#475569', icon: '⏭️', label: 'Post-deployment commands skipped' },
-  }[status] || { bg: '#f8fafc', border: '#cbd5e1', fg: '#475569', icon: 'ℹ️', label: 'Post-deployment commands: ' + status };
+    Running:             { bg: '#eff6ff', border: '#93c5fd', fg: '#1d4ed8', icon: '⏳', label: 'Post-deployment script is running in the background' },
+    Completed:           { bg: '#f0fdf4', border: '#86efac', fg: '#15803d', icon: '✅', label: 'Post-deployment script completed' },
+    CompletedWithErrors: { bg: '#fffbeb', border: '#fcd34d', fg: '#b45309', icon: '⚠️', label: 'Post-deployment script completed with errors' },
+    Failed:              { bg: '#fef2f2', border: '#fca5a5', fg: '#b91c1c', icon: '❌', label: 'Post-deployment script failed' },
+    Skipped:             { bg: '#f8fafc', border: '#cbd5e1', fg: '#475569', icon: '⏭️', label: 'Post-deployment script skipped' },
+    Interrupted:         { bg: '#fffbeb', border: '#fcd34d', fg: '#b45309', icon: '⚠️', label: 'Post-deployment script was interrupted by a server restart' },
+  }[status] || { bg: '#f8fafc', border: '#cbd5e1', fg: '#475569', icon: 'ℹ️', label: 'Post-deployment script: ' + status };
 
   // Per-phase view when available, else the legacy single-result view
-  const phases = data.postCommandResults || [];
+  const phases = data.postScriptResults || [];
   let detail = '';
 
   const failedLines = (results, prefix) => (results || [])
@@ -1405,14 +1406,14 @@ function buildPostCommandStatusHtml(data) {
 
   // Streaming/replay entry point. The event buffer is kept server-side for a while
   // after completion, so this also works for runs that already finished.
-  if (data.postCommandRequestId) {
-    window._postCmdStreamCtx = { infraId: data.id || data.name, xRequestId: data.postCommandRequestId };
+  if (data.postScriptRequestId) {
+    window._postScriptStreamCtx = { infraId: data.id || data.name, xRequestId: data.postScriptRequestId };
     if (status === 'Running') {
       detail = `
       <div style="margin-top:6px;font-size:12px;color:#334155;">
         Nodes are ready and billing has started; bootstrap continues in the background.
         <div style="margin-top:6px;">
-          <button type="button" onclick="watchPostCommandStream()"
+          <button type="button" onclick="watchPostScriptStream()"
             style="padding:5px 12px;font-size:12px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">
             📡 Watch live output
           </button>
@@ -1423,7 +1424,7 @@ function buildPostCommandStatusHtml(data) {
       // Already finished: the per-node detail above is the result; offer the log view
       detail += `
       <div style="margin-top:6px;">
-        <button type="button" onclick="watchPostCommandStream()"
+        <button type="button" onclick="watchPostScriptStream()"
           style="padding:4px 10px;font-size:12px;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;">
           📜 View command output
         </button>
@@ -1439,8 +1440,8 @@ function buildPostCommandStatusHtml(data) {
 }
 
 // Open the live streaming view for a background post-deployment run
-window.watchPostCommandStream = function () {
-  const ctx = window._postCmdStreamCtx;
+window.watchPostScriptStream = function () {
+  const ctx = window._postScriptStreamCtx;
   if (!ctx) return;
   const cfg = getConfig();
   const ns = window.configNamespace || cfg.namespace;
@@ -1470,7 +1471,7 @@ function displayInfraDynamicResultGui(data) {
             ${runningCount} / ${nodes.length} node(s) running${data.description ? '  ·  ' + esc(data.description) : ''}
           </p>
         </div>
-        <div id="infra-card-live">${buildPostCommandStatusHtml(data)}${buildInfraNodeSummaryHtml(data)}</div>
+        <div id="infra-card-live">${buildPostScriptStatusHtml(data)}${buildInfraNodeSummaryHtml(data)}</div>
         <div id="infra-card-live-note" style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;"></div>
         <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;flex-wrap:wrap;">
           <span id="infra-card-grafana"></span>
@@ -1490,7 +1491,7 @@ function displayInfraDynamicResultGui(data) {
     showCancelButton: true,
     cancelButtonText: '✕ Close',
     width: '90%',
-    didOpen: () => startInfraCardLiveRefresh(infraId, data, (d) => `${buildPostCommandStatusHtml(d)}${buildInfraNodeSummaryHtml(d)}`),
+    didOpen: () => startInfraCardLiveRefresh(infraId, data, (d) => `${buildPostScriptStatusHtml(d)}${buildInfraNodeSummaryHtml(d)}`),
     willClose: stopInfraCardLiveRefresh,
   });
 }
@@ -1842,7 +1843,7 @@ window.fixAndReplaceNodeGroup = fixAndReplaceNodeGroup;
 window.applySiblingZones = applySiblingZones;
 window.executeRetryFailedNodes = executeRetryFailedNodes;
 window.displayAccessInfoGui = displayAccessInfoGui;
-window.buildPostCommandStatusHtml = buildPostCommandStatusHtml;
+window.buildPostScriptStatusHtml = buildPostScriptStatusHtml;
 window.displayInfraDynamicResultGui = displayInfraDynamicResultGui;
 window.handleInfraWithoutNodes = handleInfraWithoutNodes;
 window.activityFeedContainer = activityFeedContainer;

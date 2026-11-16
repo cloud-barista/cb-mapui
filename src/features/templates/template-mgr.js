@@ -989,10 +989,10 @@ async function loadTemplateToInfraConfig(namespace, templateId) {
   // Clear existing configuration
   clearCircle('');
 
-  // Infra-level settings of the template (init script, SG/vNet templates, post commands, ...) are not part of
+  // Infra-level settings of the template (init script, SG/vNet templates, post script, ...) are not part of
   // the node configs; keep them so createInfra() can put them back into the request
   const infraLevel = {};
-  ['description', 'sgTemplateId', 'vNetTemplateId', 'initScript', 'postCommands', 'postCommandAsync', 'policyOnPartialFailure']
+  ['description', 'sgTemplateId', 'vNetTemplateId', 'initScript', 'postScript', 'policyOnPartialFailure']
     .forEach(k => { if (infraReq[k] !== undefined && infraReq[k] !== '' && infraReq[k] !== null) infraLevel[k] = infraReq[k]; });
   window.infraConfigFromTemplate = Object.keys(infraLevel).length ? { templateId: templateId, settings: infraLevel } : null;
 

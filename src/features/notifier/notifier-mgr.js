@@ -31,9 +31,69 @@ const STYLES = `
   .ntfy-table td.mono { font-family: monospace; word-break: break-all; }
   .ntfy-result { background: #e8f4ff; border: 1px solid #b8daff; border-radius: 6px; padding: 10px; margin-top: 10px; font-size: 12.5px; }
   .ntfy-result code { background: #fff; padding: 1px 4px; border-radius: 3px; }
+  .ntfy-val-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 2px; }
+  .ntfy-copy-btn, .ntfy-inline-btn { padding: 0 6px; font-size: 11px; line-height: 1.5; flex-shrink: 0; }
 </style>`;
 
-const state = { info: null, readers: [], messages: [], zones: [], busy: '' };
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  }
+  const container = document.getElementById('ntfy-root') || document.body;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  container.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  container.removeChild(ta);
+  return ok;
+}
+
+function copyBtn(value) {
+  return `<button type="button" class="btn btn-outline-secondary btn-sm ntfy-copy-btn" data-copy="${esc(value)}" title="Copy to clipboard">📋 Copy</button>`;
+}
+
+function renderReaderRows(readers) {
+  if (!readers.length) return '<tr><td colspan="2" style="color:#888">No reader accounts yet</td></tr>';
+  return readers.map(r =>
+    `<tr><td class="mono"><span class="ntfy-val-line"><span>${esc(r)}</span>${copyBtn(r)}</span></td><td style="width:70px"><button class="btn btn-outline-danger btn-sm ntfy-reader-del" data-name="${esc(r)}" style="padding:1px 8px;font-size:11px">Delete</button></td></tr>`
+  ).join('');
+}
+
+const DEFAULT_TEMPLATES = [
+  { id: 'infra-ntfy', name: 'infra-ntfy', infraDynamicReq: { nodeGroups: [{ name: 'ntfy', nodeGroupSize: 1, specId: 'aws+ap-northeast-2+t3.micro' }] } },
+  { id: 'infra-ntfy-global', name: 'infra-ntfy-global', infraDynamicReq: { nodeGroups: [{ name: 'ntfy-kr', nodeGroupSize: 1, specId: 'aws+ap-northeast-2+t3.micro' }, { name: 'ntfy-cn', nodeGroupSize: 1, specId: 'alibaba+cn-shanghai+ecs.e-c1m1.large' }] } },
+];
+
+const state = { info: null, readers: [], messages: [], zones: [], templates: DEFAULT_TEMPLATES, busy: '' };
+
+function notifierUrls(info) {
+  if (!info) return [];
+  if (Array.isArray(info.urls) && info.urls.length) return info.urls;
+  return info.url ? [info.url] : [];
+}
+
+function templateVmCount(t) {
+  const groups = t?.infraDynamicReq?.nodeGroups || [];
+  if (!groups.length) return 1;
+  return groups.reduce((sum, g) => sum + (Number(g.nodeGroupSize) || 1), 0);
+}
+
+function summarizeTemplate(t) {
+  const id = t?.id || t?.name || '';
+  const groups = t?.infraDynamicReq?.nodeGroups || [];
+  const regions = groups.map(g => {
+    const parts = String(g.specId || '').split('+');
+    return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : (g.name || '');
+  }).filter(Boolean);
+  const total = templateVmCount(t);
+  if (!regions.length) return id;
+  return `${id} — ${total} VM${total > 1 ? 's' : ''} (${regions.join(', ')})`;
+}
 
 async function load() {
   try {
@@ -53,10 +113,19 @@ async function load() {
     state.messages = msgs; state.readers = readers;
   } else {
     state.messages = []; state.readers = [];
-    try {
-      const hz = await axios.get(`${tbApiBase()}/resources/globalDns/hostedZone`, { ...auth(), timeout: 15000 });
-      state.zones = (hz.data?.hostedZones || []).map(z => String(z.name || '').replace(/\.$/, '')).filter(Boolean);
-    } catch { state.zones = []; }
+    const [hzRes, tplRes] = await Promise.allSettled([
+      axios.get(`${tbApiBase()}/resources/globalDns/hostedZone`, { ...auth(), timeout: 15000 }),
+      axios.get(`${tbApiBase()}/ns/system/template/infra`, { ...auth(), timeout: 15000 }),
+    ]);
+    state.zones = hzRes.status === 'fulfilled'
+      ? (hzRes.value.data?.hostedZones || []).map(z => String(z.name || '').replace(/\.$/, '')).filter(Boolean)
+      : [];
+    if (tplRes.status === 'fulfilled' && Array.isArray(tplRes.value.data?.templates)) {
+      const fetched = tplRes.value.data.templates.filter(t => String(t.id || t.name || '').startsWith('infra-ntfy'));
+      state.templates = fetched.length ? fetched : DEFAULT_TEMPLATES;
+    } else {
+      state.templates = DEFAULT_TEMPLATES;
+    }
   }
   render();
 }
@@ -69,12 +138,19 @@ function render() {
 }
 
 function renderSetup() {
-  const zoneOptions = ['<option value="">(none) self-signed certificate, IP address URL</option>']
+  const tplOptions = state.templates.map(t => {
+    const id = t.id || t.name;
+    return `<option value="${esc(id)}">${esc(summarizeTemplate(t))}</option>`;
+  }).join('');
+  const zoneOptions = ['<option value="">(none) self-signed certificate, IP:9443 URL</option>']
     .concat(state.zones.map(z => `<option value="${esc(z)}">${esc(z)}</option>`)).join('');
   return `
   <div class="ntfy-card">
     <h4>🚀 Create an ntfy server managed by CB-Tumblebug</h4>
-    <div style="font-size:12px;color:#555;margin-bottom:8px;">Provisions one small VM from the <code>infra-ntfy</code> template, installs ntfy with token auth and TLS, and registers it. Takes 2–4 minutes.</div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px;">Provisions one or more small VMs from the selected Infra template (choose <code>infra-ntfy-global</code> for Korea + Mainland China dual endpoints), installs ntfy with shared token auth and TLS, and registers them together. Takes 2–4 minutes.</div>
+    <div class="ntfy-row">
+      <label>Template <select id="ntfy-template" class="ntfy-input" style="min-width:340px">${tplOptions}</select></label>
+    </div>
     <div class="ntfy-row">
       <label>Namespace <input id="ntfy-ns" class="ntfy-input" value="system" style="width:110px"></label>
       <label>Infra name <input id="ntfy-name" class="ntfy-input" value="ntfy" style="width:110px"></label>
@@ -83,7 +159,7 @@ function renderSetup() {
       <label>Domain (Route53) <select id="ntfy-domain" class="ntfy-input" style="min-width:260px">${zoneOptions}</select></label>
       <label>Record <input id="ntfy-record" class="ntfy-input" placeholder="auto: ntfy-xxx" style="width:130px"></label>
     </div>
-    <div id="ntfy-fqdn" class="ntfy-note" style="display:none"></div>
+    <div id="ntfy-fqdn" class="ntfy-note"></div>
     <div class="ntfy-row">
       <button id="ntfy-create" class="btn btn-success btn-sm">🚀 Create</button>
       <span id="ntfy-create-status" style="font-size:12px;color:#555"></span>
@@ -92,7 +168,7 @@ function renderSetup() {
   <div class="ntfy-card">
     <h4>🔗 Register an existing ntfy server</h4>
     <div class="ntfy-row">
-      <input id="ntfy-ext-url" class="ntfy-input" placeholder="https://ntfy.example.com" style="flex:1;min-width:220px">
+      <input id="ntfy-ext-url" class="ntfy-input" placeholder="https://ntfy.example.com (comma-separated for multiple URLs)" style="flex:1;min-width:220px">
       <input id="ntfy-ext-topic" class="ntfy-input" placeholder="topic" style="width:140px">
     </div>
     <div class="ntfy-row">
@@ -106,11 +182,18 @@ function renderSetup() {
 
 function renderRegistered() {
   const i = state.info;
+  const urls = notifierUrls(i);
   const statusCls = i.status === 'Active' ? 'ntfy-ok' : 'ntfy-err';
   const managed = i.source === 'managed';
-  const readersHtml = state.readers.length
-    ? state.readers.map(r => `<tr><td class="mono">${esc(r)}</td><td style="width:70px"><button class="btn btn-outline-danger btn-sm ntfy-reader-del" data-name="${esc(r)}" style="padding:1px 8px;font-size:11px">Delete</button></td></tr>`).join('')
-    : '<tr><td colspan="2" style="color:#888">No reader accounts yet</td></tr>';
+  const serversHtml = urls.map((u, idx) =>
+    `<div class="ntfy-val-line"><span>${esc(u)}</span>${urls.length > 1 ? `<span style="color:#6c757d;font-size:11px;font-family:sans-serif">${idx === 0 ? '(primary)' : `(endpoint #${idx + 1})`}</span>` : ''}${copyBtn(u)}</div>`
+  ).join('');
+  const certDesc = i.caCert && i.managedDnsRecord
+    ? 'publicly trusted (primary) + pinned self-signed (additional endpoints)'
+    : (i.caCert ? 'pinned self-signed (CA below)' : 'publicly trusted');
+  const delVmLabel = urls.length > 1 ? `also delete all ${urls.length} ntfy VMs` : 'also delete the ntfy VM';
+
+  const readersHtml = renderReaderRows(state.readers);
   const msgsHtml = state.messages.length
     ? state.messages.map(m => `<tr><td style="white-space:nowrap">${esc((m.time || '').replace('T', ' ').replace(/\.\d+Z$|Z$/, ''))}</td><td>${esc(m.kind || '-')}</td><td class="mono">${esc([m.infraId, m.nodeId].filter(Boolean).join(' / '))}</td><td class="mono">${esc((m.message || '').slice(0, 160))}</td></tr>`).join('')
     : '<tr><td colspan="4" style="color:#888">No messages received yet</td></tr>';
@@ -118,19 +201,19 @@ function renderRegistered() {
   <div class="ntfy-card">
     <h4>🔔 Registered notifier <span class="ntfy-badge ${statusCls}">${esc(i.status)}</span> <span class="ntfy-badge ntfy-muted">${esc(i.source)}</span></h4>
     <dl class="ntfy-kv">
-      <dt>Server</dt><dd>${esc(i.url)}</dd>
-      <dt>Topic</dt><dd>${esc(i.topic)}</dd>
+      <dt>${urls.length > 1 ? `Servers (${urls.length})` : 'Server'}</dt><dd>${serversHtml}</dd>
+      <dt>Topic</dt><dd><span class="ntfy-val-line"><span>${esc(i.topic)}</span>${copyBtn(i.topic)}</span></dd>
       ${managed ? `<dt>Infra</dt><dd>${esc(i.managedNsId)} / ${esc(i.managedInfraId)}</dd>` : ''}
       ${i.managedDnsRecord ? `<dt>DNS record</dt><dd>${esc(i.managedDnsRecord)}</dd>` : ''}
-      <dt>Certificate</dt><dd>${i.caCert ? 'self-signed (CA below)' : 'publicly trusted'}</dd>
+      <dt>Certificate</dt><dd>${esc(certDesc)}</dd>
       ${i.statusMessage ? `<dt>Message</dt><dd style="color:#dc3545">${esc(i.statusMessage)}</dd>` : ''}
     </dl>
-    ${i.caCert ? `<details style="margin-top:6px"><summary style="font-size:12px;cursor:pointer">CA certificate (PEM)</summary><textarea class="ntfy-input" readonly style="width:100%;height:70px;font-size:11px">${esc(i.caCert)}</textarea></details>` : ''}
+    ${i.caCert ? `<details style="margin-top:6px"><summary style="font-size:12px;cursor:pointer">Pinned certificate PEM</summary><textarea class="ntfy-input" readonly style="width:100%;height:70px;font-size:11px">${esc(i.caCert)}</textarea></details>` : ''}
     <div class="ntfy-row">
       <button id="ntfy-test" class="btn btn-outline-primary btn-sm">🔁 Round-trip test</button>
       <button id="ntfy-refresh" class="btn btn-outline-secondary btn-sm">🔄 Refresh</button>
       <span style="flex:1"></span>
-      ${managed ? '<label style="font-size:12px;margin:0"><input type="checkbox" id="ntfy-del-infra" checked> also delete the ntfy VM</label>' : ''}
+      ${managed ? `<label style="font-size:12px;margin:0"><input type="checkbox" id="ntfy-del-infra" checked> ${esc(delVmLabel)}</label>` : ''}
       <button id="ntfy-unregister" class="btn btn-outline-danger btn-sm">🗑 Unregister</button>
     </div>
     <div id="ntfy-action-status" style="font-size:12px;color:#555;margin-top:6px"></div>
@@ -170,22 +253,46 @@ function setText(id, text, isError) {
 }
 
 function bind() {
+  const root = document.getElementById('ntfy-root');
+  if (root && !root._copyBound) {
+    root._copyBound = true;
+    root.addEventListener('click', async (ev) => {
+      const btn = ev.target?.closest?.('.ntfy-copy-btn[data-copy]');
+      if (!btn) return;
+      const orig = btn.dataset.origLabel || btn.textContent;
+      btn.dataset.origLabel = orig;
+      if (btn._copyTimer) clearTimeout(btn._copyTimer);
+      const ok = await copyText(btn.dataset.copy ?? '');
+      btn.textContent = ok ? '✅ Copied' : 'Copy failed';
+      btn.style.color = ok ? '#28a745' : '#dc3545';
+      btn._copyTimer = setTimeout(() => {
+        btn.textContent = orig;
+        btn.style.color = '';
+      }, 1500);
+    });
+  }
   if (!state.info) return bindSetup();
 
+  const urls = notifierUrls(state.info);
   on('ntfy-refresh', () => load());
   on('ntfy-test', async () => {
     setText('ntfy-action-status', 'Testing...');
     try {
       const r = await axios.post(`${api()}/test`, {}, { ...auth(), timeout: 30000 });
       const d = r.data;
-      setText('ntfy-action-status', d.success ? `✅ Round-trip OK (${d.elapsedMs} ms, id ${d.messageId})` : `❌ ${d.message}`, !d.success);
+      const extra = d.message ? `, ${d.message}` : '';
+      setText('ntfy-action-status', d.success ? `✅ Round-trip OK (${d.elapsedMs} ms${extra}, id ${d.messageId})` : `❌ ${d.message}`, !d.success);
     } catch (e) { setText('ntfy-action-status', '❌ ' + errMsg(e), true); }
   });
   on('ntfy-unregister', async () => {
     const delInfra = !!document.getElementById('ntfy-del-infra')?.checked;
-    const ok = await Swal.fire({ title: 'Unregister notifier?', text: delInfra ? 'The managed ntfy VM, its DNS record and resources will be deleted.' : 'Only the registration is removed.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Unregister' });
+    const ok = await Swal.fire({
+      title: 'Unregister notifier?',
+      text: delInfra ? 'The managed ntfy VM(s), DNS record and network resources will be deleted.' : 'Only the registration is removed.',
+      icon: 'warning', showCancelButton: true, confirmButtonText: 'Unregister',
+    });
     if (!ok.isConfirmed) return;
-    setText('ntfy-action-status', delInfra ? 'Deleting VM and unregistering (about 1 minute)...' : 'Unregistering...');
+    setText('ntfy-action-status', delInfra ? 'Deleting VM(s) and unregistering (about 1–2 minutes)...' : 'Unregistering...');
     try {
       await axios.delete(`${api()}?deleteInfra=${delInfra}`, { ...auth(), timeout: 900000 });
       await load();
@@ -212,20 +319,22 @@ function bind() {
     const password = document.getElementById('ntfy-reader-pass')?.value;
     const box = document.getElementById('ntfy-reader-result');
     if (!name) { box.innerHTML = '<div class="ntfy-note" style="color:#dc3545">Account name is required</div>'; return; }
-    box.innerHTML = '<div class="ntfy-note">Creating account on the ntfy server...</div>';
+    box.innerHTML = `<div class="ntfy-note">Creating account on ${urls.length > 1 ? `all ${urls.length} ntfy servers` : 'the ntfy server'}...</div>`;
     try {
       const r = await axios.post(`${api()}/reader`, { name, password: password || undefined }, { ...auth(), timeout: 120000 });
       const d = r.data;
+      const srvDisplay = (urls.length > 1 ? urls : [d.serverUrl])
+        .map(u => `<div class="ntfy-val-line"><span>${esc(u)}</span>${copyBtn(u)}</div>`).join('');
       box.innerHTML = `
         <div class="ntfy-result">
-          <div style="font-weight:600;margin-bottom:6px">Account created. The password is shown only once.</div>
+          <div style="font-weight:600;margin-bottom:6px">Account created${urls.length > 1 ? ` on all ${urls.length} servers` : ''}. The password is shown only once.</div>
           <div class="ntfy-kv">
-            <dt>Server</dt><dd>${esc(d.serverUrl)}</dd>
-            <dt>Topic</dt><dd>${esc(d.topic)}</dd>
-            <dt>Username</dt><dd>${esc(d.name)}</dd>
-            <dt>Password</dt><dd><span id="ntfy-pw-value" data-pw="${esc(d.password)}">${'•'.repeat(d.password.length)}</span>
-              <button id="ntfy-pw-toggle" class="btn btn-outline-secondary btn-sm" style="padding:0 6px;font-size:11px;margin-left:6px">👁 Show</button>
-              <button id="ntfy-pw-copy" class="btn btn-outline-secondary btn-sm" style="padding:0 6px;font-size:11px;margin-left:4px">📋 Copy</button></dd>
+            <dt>${urls.length > 1 ? 'Servers' : 'Server'}</dt><dd>${srvDisplay}</dd>
+            <dt>Topic</dt><dd><span class="ntfy-val-line"><span>${esc(d.topic)}</span>${copyBtn(d.topic)}</span></dd>
+            <dt>Username</dt><dd><span class="ntfy-val-line"><span>${esc(d.name)}</span>${copyBtn(d.name)}</span></dd>
+            <dt>Password</dt><dd><span class="ntfy-val-line"><span id="ntfy-pw-value" data-pw="${esc(d.password)}">${'•'.repeat(d.password.length)}</span>
+              <button type="button" id="ntfy-pw-toggle" class="btn btn-outline-secondary btn-sm ntfy-inline-btn">👁 Show</button>
+              ${copyBtn(d.password)}</span></dd>
           </div>
           <div style="margin-top:8px">${esc(d.note)}</div>
           <div style="margin-top:6px"><b>ntfy app</b>: Settings → Manage users → add <code>${esc(d.serverUrl)}</code> with this account → Subscribe to topic → server <code>${esc(d.serverUrl)}</code>, topic <code>${esc(d.topic)}</code>.</div>
@@ -238,13 +347,9 @@ function bind() {
         pw.textContent = shown ? pw.dataset.pw : '•'.repeat(pw.dataset.pw.length);
         document.getElementById('ntfy-pw-toggle').textContent = shown ? '🙈 Hide' : '👁 Show';
       });
-      on('ntfy-pw-copy', async () => {
-        try { await navigator.clipboard.writeText(pw.dataset.pw); setText('ntfy-pw-copy', '✅ Copied'); setTimeout(() => setText('ntfy-pw-copy', '📋 Copy'), 1500); }
-        catch { setText('ntfy-pw-copy', 'Copy failed', true); }
-      });
       state.readers = await axios.get(`${api()}/reader`, auth()).then(r => r.data || []).catch(() => state.readers.concat(name));
       const rows = document.querySelector('.ntfy-table tbody');
-      if (rows) rows.innerHTML = state.readers.map(r => `<tr><td class="mono">${esc(r)}</td><td style="width:70px"><button class="btn btn-outline-danger btn-sm ntfy-reader-del" data-name="${esc(r)}" style="padding:1px 8px;font-size:11px">Delete</button></td></tr>`).join('');
+      if (rows) rows.innerHTML = renderReaderRows(state.readers);
       bindReaderDelete();
       document.getElementById('ntfy-reader-name').value = '';
       document.getElementById('ntfy-reader-pass').value = '';
@@ -268,28 +373,48 @@ function bindReaderDelete() {
 }
 
 function bindSetup() {
+  const tplSel = document.getElementById('ntfy-template');
   const domainSel = document.getElementById('ntfy-domain');
   const recordIn = document.getElementById('ntfy-record');
   const fqdnBox = document.getElementById('ntfy-fqdn');
-  const updateFqdn = () => {
-    const d = domainSel?.value; const r = (recordIn?.value || '').trim();
-    if (!fqdnBox) return;
-    fqdnBox.style.display = d ? 'block' : 'none';
-    if (d) fqdnBox.textContent = `Server URL will be https://${r || 'ntfy-xxx (random, unused name)'}.${d} with a Let's Encrypt certificate (phones and browsers can subscribe directly). An explicit record must not already exist.`;
+  const selectedVmCount = () => {
+    const id = tplSel?.value;
+    const found = state.templates.find(t => (t.id || t.name) === id);
+    return found ? templateVmCount(found) : 1;
   };
+  const updateFqdn = () => {
+    if (!fqdnBox) return;
+    const d = domainSel?.value;
+    const r = (recordIn?.value || '').trim();
+    const vmCount = selectedVmCount();
+    const fqdnPreview = `https://${r || 'ntfy-xxx (random, unused name)'}.${d}`;
+    if (vmCount > 1 && d) {
+      fqdnBox.textContent = `Multi-endpoint setup (${vmCount} VMs sharing one topic & token): Primary node uses ${fqdnPreview} (Let's Encrypt :443, phones & browsers supported); additional node(s) use https://<public-ip>:9443 (pinned self-signed TLS). Workload VMs automatically report to the first reachable server.`;
+    } else if (vmCount > 1) {
+      fqdnBox.textContent = `Multi-endpoint setup (${vmCount} VMs sharing one topic & token): Each node uses https://<public-ip>:9443 with a pinned self-signed certificate. Workload VMs automatically report to the first reachable server.`;
+    } else if (d) {
+      fqdnBox.textContent = `Server URL will be ${fqdnPreview} with a Let's Encrypt certificate (phones and browsers can subscribe directly). An explicit record must not already exist.`;
+    } else {
+      fqdnBox.textContent = `Server URL will be https://<public-ip>:9443 with a pinned self-signed certificate (trusted automatically by CB-Tumblebug and workload VMs).`;
+    }
+  };
+  tplSel?.addEventListener('change', updateFqdn);
   domainSel?.addEventListener('change', updateFqdn);
   recordIn?.addEventListener('input', updateFqdn);
+  updateFqdn();
 
   on('ntfy-create', async () => {
+    const vmCount = selectedVmCount();
     const body = {
       nsId: document.getElementById('ntfy-ns')?.value.trim() || undefined,
+      templateId: tplSel?.value || undefined,
       name: document.getElementById('ntfy-name')?.value.trim() || undefined,
       domainName: domainSel?.value || undefined,
       recordName: domainSel?.value ? (recordIn?.value.trim() || undefined) : undefined,
     };
     const btn = document.getElementById('ntfy-create');
     btn.disabled = true;
-    setText('ntfy-create-status', 'Provisioning VM, installing ntfy, registering... (2–4 minutes)');
+    setText('ntfy-create-status', `Provisioning ${vmCount > 1 ? `${vmCount} VMs` : 'VM'}, installing ntfy, registering... (2–4 minutes)`);
     try {
       await axios.post(`${api()}/ntfy`, body, { ...auth(), timeout: 1500000 });
       await load();
@@ -300,8 +425,11 @@ function bindSetup() {
   });
 
   on('ntfy-register', async () => {
+    const rawUrl = document.getElementById('ntfy-ext-url')?.value.trim() || '';
+    const urls = rawUrl.split(/[\s,]+/).filter(Boolean);
     const body = {
-      url: document.getElementById('ntfy-ext-url')?.value.trim(),
+      url: urls[0] || '',
+      urls: urls.length > 1 ? urls : undefined,
       topic: document.getElementById('ntfy-ext-topic')?.value.trim(),
       writeToken: document.getElementById('ntfy-ext-write')?.value.trim() || undefined,
       readToken: document.getElementById('ntfy-ext-read')?.value.trim() || undefined,
