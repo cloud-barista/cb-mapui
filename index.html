@@ -1973,17 +1973,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
                     style="background:#0d1117;border-color:#30363d;color:#e6edf3">
                 </div>
                 <div class="form-group col-md-4 mb-2">
-                  <label><small style="color:#7d8590">Post-Deployment Commands
-                    <span style="color:#4a5568;font-size:10px;font-family:monospace"> → postCommand</span>
+                  <label><small style="color:#7d8590">Post-Deployment Script
+                    <span style="color:#4a5568;font-size:10px;font-family:monospace"> → postScript</span>
                     <span style="color:#4a5568;font-size:10px"> (one per line, runs after all nodes are ready)</span></small></label>
-                  <textarea id="apPostCommand" class="form-control form-control-sm" rows="2"
+                  <textarea id="apPostScript" class="form-control form-control-sm" rows="2"
                     placeholder="ex: sudo apt-get update -y"
                     style="background:#0d1117;border-color:#30363d;color:#e6edf3;font-family:monospace;font-size:12px"></textarea>
                 </div>
                 <div class="form-group col-md-2 mb-2">
                   <label><small style="color:#7d8590">Cmd Timeout (min)
                     <span style="color:#4a5568;font-size:10px"> (1–120)</span></small></label>
-                  <input type="number" id="apPostCmdTimeout" class="form-control form-control-sm"
+                  <input type="number" id="apPostScriptTimeout" class="form-control form-control-sm"
                     placeholder="default: 30" min="1" max="120"
                     style="background:#0d1117;border-color:#30363d;color:#e6edf3">
                   <small style="color:#4a5568;font-size:10px">bounds the wait when a node's command hangs</small>

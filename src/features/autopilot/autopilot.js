@@ -52,10 +52,10 @@ function showAutopilotDialog() {
 
   var labelEl = document.getElementById('apInfraLabel');
   if (labelEl) labelEl.value = '';
-  var postCmdEl = document.getElementById('apPostCommand');
-  if (postCmdEl) postCmdEl.value = '';
-  var postCmdTimeoutEl = document.getElementById('apPostCmdTimeout');
-  if (postCmdTimeoutEl) postCmdTimeoutEl.value = '';
+  var postScriptEl = document.getElementById('apPostScript');
+  if (postScriptEl) postScriptEl.value = '';
+  var postScriptTimeoutEl = document.getElementById('apPostScriptTimeout');
+  if (postScriptTimeoutEl) postScriptTimeoutEl.value = '';
 
   $('#autopilotModal').modal('show');
 }
@@ -275,15 +275,15 @@ function buildAutopilotReq() {
   var infraLabels = parseLabelsString(document.getElementById('apInfraLabel').value || '');
   if (Object.keys(infraLabels).length > 0) req.label = infraLabels;
 
-  // Post-deployment commands: one per line; executed once after all NodeGroups complete
-  var postCmdText = (document.getElementById('apPostCommand').value || '').trim();
-  if (postCmdText) {
-    var commands = postCmdText.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+  // Post-deployment script: one command per line; run once after all NodeGroups complete
+  var postScriptText = (document.getElementById('apPostScript').value || '').trim();
+  if (postScriptText) {
+    var commands = postScriptText.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
     if (commands.length > 0) {
       var phase = { command: commands };
-      var cmdTimeout = parseInt(document.getElementById('apPostCmdTimeout').value);
+      var cmdTimeout = parseInt(document.getElementById('apPostScriptTimeout').value);
       if (cmdTimeout > 0) phase.timeoutMinutes = Math.min(cmdTimeout, 120);
-      req.postCommands = [phase];
+      req.postScript = { phases: [phase] };
     }
   }
 
@@ -428,14 +428,14 @@ function renderAutopilotReview(reviewResult, req) {
     (summary.validCandidates || 0) + ' valid candidates</small></div>' +
     feasBadge + '</div>';
 
-  // Show labels / post-commands from the request so users can confirm before provisioning.
+  // Show labels / the post script from the request so users can confirm before provisioning.
   var reqMeta = [];
   if (req.label && Object.keys(req.label).length > 0) {
     reqMeta.push('🏷 ' + window.escapeHtml(labelsToString(req.label)));
   }
-  var apPhase = (req.postCommands && req.postCommands[0]) || null;
+  var apPhase = (req.postScript && req.postScript.phases && req.postScript.phases[0]) || null;
   if (apPhase && apPhase.command && apPhase.command.length > 0) {
-    reqMeta.push('⚡ ' + apPhase.command.length + ' post-command(s) after all nodes ready' +
+    reqMeta.push('⚡ ' + apPhase.command.length + ' post-script command(s) after all nodes ready' +
       (apPhase.timeoutMinutes ? ', timeout ' + apPhase.timeoutMinutes + 'min' : ''));
   }
   if (reqMeta.length > 0) {
@@ -826,7 +826,7 @@ function showAutopilotResult(result, req) {
       '<tbody>' + attemptRows + '</tbody></table></div>' +
       (stats.wastedCostPerHour > 0 ? '<div style="margin-top:6px;font-size:11px;color:#7d8590">Wasted: $' +
         stats.wastedCostPerHour.toFixed(3) + '/hr from failed nodes (refine cleaned up)</div>' : '') +
-      _apPostCommandSummaryHtml(result) +
+      _apPostScriptSummaryHtml(result) +
       '</div>',
     showCloseButton: true,
     confirmButtonText: '🗺 View on Map',
@@ -848,10 +848,10 @@ function _apStatCell(label, value) {
     '<div style="font-size:15px;font-weight:700;color:#e6edf3;font-family:monospace">' + value + '</div></div>';
 }
 
-// Renders a compact per-node summary of post-deployment command results
-// (flattened from result.postCommandResults phases of the embedded InfraInfo).
-function _apPostCommandSummaryHtml(result) {
-  var pcResults = (result.postCommandResults || []).reduce(function(acc, ph) {
+// Renders a compact per-node summary of post-deployment script results
+// (flattened from result.postScriptResults phases of the embedded InfraInfo).
+function _apPostScriptSummaryHtml(result) {
+  var pcResults = (result.postScriptResults || []).reduce(function(acc, ph) {
     return acc.concat((ph.results && ph.results.results) || []);
   }, []);
   if (pcResults.length === 0) return '';
@@ -864,7 +864,7 @@ function _apPostCommandSummaryHtml(result) {
       '<span style="color:#7d8590;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + detail + '</span></div>';
   }).join('');
   return '<div style="margin-top:10px;background:#0d1117;border-radius:4px;padding:8px">' +
-    '<div style="font-size:11px;color:#f0a500;margin-bottom:6px">⚡ Post-Deployment Commands ' +
+    '<div style="font-size:11px;color:#f0a500;margin-bottom:6px">⚡ Post-Deployment Script ' +
     '<span style="color:#7d8590">(' + okCount + '/' + pcResults.length + ' nodes ok)</span></div>' +
     rows + '</div>';
 }

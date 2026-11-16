@@ -60,7 +60,15 @@ const makeArrayProxy = (getArr) => new Proxy([], {
 const nodeGroupRequestFromSpecList = makeArrayProxy(() => window.nodeGroupRequestFromSpecList);
 const recommendedSpecList = makeArrayProxy(() => window.recommendedSpecList);
 
+// Adds the postScriptAsync call option: the call returns once nodes are provisioned
+// and the post-deployment script runs in the background
+function withPostScriptAsync(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'postScriptAsync=true';
+}
+
 function proceedWithInfraCreation(createInfraReq, url, username, password) {
+  // Creation returns once nodes are provisioned; the bootstrap is watched from the result popup
+  if (createInfraReq.postScript?.phases?.length) url = withPostScriptAsync(url);
   var jsonBody = JSON.stringify(createInfraReq, undefined, 4);
   // Infra creation now tracked by spinner instead of console log
   var spinnerId = addSpinnerTask("Creating Infra: " + createInfraReq.name);
@@ -170,14 +178,14 @@ function generateCustomImageSettingsHtml() {
     </div>`;
 }
 
-// Show post-deployment command dialog
-function showPostCommandDialog(createInfraReq, infraCreationUrl, username, password, buildAgnosticImage = false) {
+// Show the post-deployment script dialog
+function showPostScriptDialog(createInfraReq, infraCreationUrl, username, password, buildAgnosticImage = false) {
   const workflowInfoHtml = buildAgnosticImage ? `
     <div style="background-color: #e3f2fd; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #2196f3;">
       <p style="margin: 0; font-size: 0.9em; color: #1565c0;">
         <strong>🔧 Image Building Workflow:</strong><br>
         1️⃣ Create Infra infrastructure<br>
-        2️⃣ Execute post-deployment commands (setup software)<br>
+        2️⃣ Run the post-deployment script (setup software)<br>
         3️⃣ Create custom snapshots from Nodes<br>
         4️⃣ Wait for images to become Available<br>
         5️⃣ Cleanup infrastructure (optional)
@@ -187,7 +195,7 @@ function showPostCommandDialog(createInfraReq, infraCreationUrl, username, passw
   Swal.fire({
     title: buildAgnosticImage ?
       "📦 Build Cloud-Agnostic Custom Image" :
-      "🚀 Post-deployment Commands",
+      "🚀 Post-deployment Script",
     width: 850,
     html: `
     ${POPUP_STYLES}
@@ -205,7 +213,7 @@ function showPostCommandDialog(createInfraReq, infraCreationUrl, username, passw
             <div class="popup-field">
               <label class="popup-label">Timeout</label>
               <div class="popup-inline">
-                <input type="number" id="postCmdTimeout" class="popup-input" style="width:60px;" value="30" min="1" max="120">
+                <input type="number" id="postScriptTimeout" class="popup-input" style="width:60px;" value="30" min="1" max="120">
                 <span style="font-size:0.75rem; color:#666;">min</span>
               </div>
             </div>
@@ -213,7 +221,7 @@ function showPostCommandDialog(createInfraReq, infraCreationUrl, username, passw
           <div class="popup-col" style="flex:0 0 auto;">
             <div class="popup-field">
               <label class="popup-label">SSH User</label>
-              <input type="text" id="postCmdSshUser" class="popup-input" style="width:110px;" placeholder="auto"
+              <input type="text" id="postScriptSshUser" class="popup-input" style="width:110px;" placeholder="auto"
                 title="Leave blank so each node uses its own verified username (recommended for mixed images).">
             </div>
           </div>
@@ -234,8 +242,8 @@ function showPostCommandDialog(createInfraReq, infraCreationUrl, username, passw
       const phases = collectPhases();
       const commands = phases ? [] : collectCommands();
       const labelSelector = document.getElementById('labelSelector')?.value?.trim() || '';
-      const timeoutMinutes = parseInt(document.getElementById('postCmdTimeout')?.value) || 0;
-      const sshUserName = document.getElementById('postCmdSshUser')?.value?.trim() || '';
+      const timeoutMinutes = parseInt(document.getElementById('postScriptTimeout')?.value) || 0;
+      const sshUserName = document.getElementById('postScriptSshUser')?.value?.trim() || '';
       const result = { commands, phases, labelSelector, timeoutMinutes, sshUserName };
 
       // Add buildAgnosticImage specific parameters if applicable
@@ -259,17 +267,14 @@ function showPostCommandDialog(createInfraReq, infraCreationUrl, username, passw
 
       if (cv.phases && cv.phases.length > 0) {
         // Ordered phases (server runs them sequentially with per-phase targets)
-        createInfraReq.postCommands = cv.phases.map(p => applyOpts(p));
-        // Async: return once nodes are provisioned; watch the bootstrap via streaming
-        if (!buildAgnosticImage) createInfraReq.postCommandAsync = true;
+        createInfraReq.postScript = { phases: cv.phases.map(p => applyOpts(p)) };
       } else if (cv.commands && cv.commands.length > 0) {
         const single = applyOpts({ command: cv.commands });
         if (cv.labelSelector) single.labelSelector = cv.labelSelector;
-        createInfraReq.postCommands = [single];
-        // Async: return once nodes are provisioned; watch the bootstrap via streaming
-        // (image building needs the result before snapshotting, so it stays synchronous)
-        if (!buildAgnosticImage) createInfraReq.postCommandAsync = true;
+        createInfraReq.postScript = { phases: [single] };
       }
+      // proceedWithInfraCreation sends it async; image building needs the result before
+      // snapshotting, so that path stays synchronous
 
       // Handle buildAgnosticImage workflow
       if (buildAgnosticImage) {
@@ -1187,8 +1192,8 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
 
               <div style="margin: 8px 0;">
                 <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.9em;">
-                  <input type="checkbox" id="postcommand-checkbox" style="margin-right: 8px; transform: scale(1.2);">
-                  <span style="color: #333; font-weight: 500;">🚀 Add post-deployment commands</span>
+                  <input type="checkbox" id="postscript-checkbox" style="margin-right: 8px; transform: scale(1.2);">
+                  <span style="color: #333; font-weight: 500;">🚀 Add a post-deployment script</span>
                 </label>
                 <div style="margin-left: 24px; margin-top: 4px; color: #666; font-size: 0.8em;">
                   Execute custom commands on all Nodes after successful deployment.
@@ -1296,13 +1301,13 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
         // Toggle Build Image options visibility
         window.toggleBuildImageOptions = function() {
           const buildImageCheckbox = document.getElementById('buildimage-checkbox');
-          const postCommandCheckbox = document.getElementById('postcommand-checkbox');
+          const postScriptCheckbox = document.getElementById('postscript-checkbox');
           
           if (buildImageCheckbox && buildImageCheckbox.checked) {
-            // When build image is enabled, automatically enable post-commands
-            if (postCommandCheckbox) {
-              postCommandCheckbox.checked = true;
-              postCommandCheckbox.disabled = false;
+            // When build image is enabled, automatically enable the post-deployment script
+            if (postScriptCheckbox) {
+              postScriptCheckbox.checked = true;
+              postScriptCheckbox.disabled = false;
             }
           }
         };
@@ -1359,7 +1364,7 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
         if (validationStatus !== "error") {
           return {
             hold: document.getElementById('hold-checkbox') ? document.getElementById('hold-checkbox').checked : false,
-            addPostCommand: document.getElementById('postcommand-checkbox') ? document.getElementById('postcommand-checkbox').checked : false,
+            addPostScript: document.getElementById('postscript-checkbox') ? document.getElementById('postscript-checkbox').checked : false,
             buildAgnosticImage: document.getElementById('buildimage-checkbox') ? document.getElementById('buildimage-checkbox').checked : false,
             initScript, initScriptGroups: groups
           };
@@ -1386,7 +1391,7 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
           }).then((forceResult) => {
             if (forceResult.isConfirmed) {
               // Force proceed with Infra creation using selected options
-              const options = result.value || { hold: false, addPostCommand: false };
+              const options = result.value || { hold: false, addPostScript: false };
               applyInitScriptChoice(createInfraReq, options);
               
               var infraCreationUrl = finalUrl;
@@ -1395,10 +1400,10 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
                 infraCreationUrl += "?option=hold";
               }
 
-              // Handle post-deployment commands for force creation
-              if (options.addPostCommand || options.buildAgnosticImage) {
-                // Show the same post-command dialog as normal flow (with buildAgnosticImage flag)
-                showPostCommandDialog(createInfraReq, infraCreationUrl, username, password, options.buildAgnosticImage);
+              // Handle the post-deployment script for force creation
+              if (options.addPostScript || options.buildAgnosticImage) {
+                // Show the same post-deployment script dialog as normal flow (with buildAgnosticImage flag)
+                showPostScriptDialog(createInfraReq, infraCreationUrl, username, password, options.buildAgnosticImage);
               } else {
                 proceedWithInfraCreation(createInfraReq, infraCreationUrl, username, password);
               }
@@ -1406,7 +1411,7 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
           });
         } else {
           // Proceed directly to Infra creation with selected options
-          const options = result.value || { hold: false, addPostCommand: false };
+          const options = result.value || { hold: false, addPostScript: false };
           applyInitScriptChoice(createInfraReq, options);
           
           var infraCreationUrl = finalUrl;
@@ -1415,9 +1420,9 @@ function reviewInfraConfiguration(createInfraReq, hostname, port, username, pass
             infraCreationUrl += "?option=hold";
           }
 
-          if (options.addPostCommand || options.buildAgnosticImage) {
-            // Show post-command dialog (with buildAgnosticImage flag)
-            showPostCommandDialog(createInfraReq, infraCreationUrl, username, password, options.buildAgnosticImage);
+          if (options.addPostScript || options.buildAgnosticImage) {
+            // Show the post-deployment script dialog (with buildAgnosticImage flag)
+            showPostScriptDialog(createInfraReq, infraCreationUrl, username, password, options.buildAgnosticImage);
           } else {
             proceedWithInfraCreation(createInfraReq, infraCreationUrl, username, password);
           }
@@ -1565,7 +1570,7 @@ function createInfra() {
     var createInfraReq = JSON.parse(JSON.stringify(createInfraReqTmplt));
     createInfraReq.name = "mc-" + generateInfraName();
     createInfraReq.nodeGroups = Array.from(nodeGroupRequestFromSpecList);
-    // Settings loaded from an Infra template (init script, SG/vNet templates, post commands, ...)
+    // Settings loaded from an Infra template (init script, SG/vNet templates, post script, ...)
     if (window.infraConfigFromTemplate?.settings) {
       Object.assign(createInfraReq, JSON.parse(JSON.stringify(window.infraConfigFromTemplate.settings)));
     }
@@ -1694,7 +1699,7 @@ function showFinalInfraConfirmation(createInfraReq, url, totalCost, totalNodeSca
       nodeGroupReqString +
       templateSettingsHtml(createInfraReq) +
       "<br><br><input type='checkbox' id='hold-checkbox'> Hold Node provisioning of the Infra" +
-      "<br><input type='checkbox' id='postcommand-checkbox'> Add post-deployment commands" +
+      "<br><input type='checkbox' id='postscript-checkbox'> Add a post-deployment script" +
       "</font>" + '<div style="text-align:left;margin-top:16px;padding:16px;background-color:#f8f9fa;border:1px solid #ddd;border-radius:5px;">' + initScriptSectionHtml(createInfraReq.nodeGroups) + '</div>',
     showCancelButton: true,
     confirmButtonText: "Confirm",
@@ -1713,7 +1718,7 @@ function showFinalInfraConfirmation(createInfraReq, url, totalCost, totalNodeSca
       if (groups === false) return false;
       return {
         hold: document.getElementById('hold-checkbox').checked,
-        addPostCommand: document.getElementById('postcommand-checkbox').checked,
+        addPostScript: document.getElementById('postscript-checkbox').checked,
         initScript: untouched ? createInfraReq.initScript : collected,
         initScriptGroups: groups,
       };
@@ -1728,10 +1733,10 @@ function showFinalInfraConfirmation(createInfraReq, url, totalCost, totalNodeSca
         url += "?option=hold";
       }
 
-      if (result.value.addPostCommand) {
-        // Show postCommand input popup
+      if (result.value.addPostScript) {
+        // Show the postScript input popup
         Swal.fire({
-          title: "<font size=5><b>Add post-deployment commands</b></font>",
+          title: "<font size=5><b>Add a post-deployment script</b></font>",
           width: 900,
           html: `
             <div id="dynamicContainer" style="text-align: left;">
@@ -1745,16 +1750,14 @@ function showFinalInfraConfirmation(createInfraReq, url, totalCost, totalNodeSca
           preConfirm: () => collectCommands(),
         }).then((cmdResult) => {
           if (cmdResult.isConfirmed && cmdResult.value && cmdResult.value.length > 0) {
-            // Single command set = one phase
-            createInfraReq.postCommands = [{ command: cmdResult.value }];
-            // Async: creation returns once nodes are provisioned (watch bootstrap live)
-            createInfraReq.postCommandAsync = true;
+            // Single command set = one phase (sent async by proceedWithInfraCreation)
+            createInfraReq.postScript = { phases: [{ command: cmdResult.value }] };
             proceedWithInfraCreation(createInfraReq, url, username, password);
           }
-          // User cancelled the postCommand dialog or no commands were entered
+          // User cancelled the postScript dialog or no commands were entered
         });
       } else {
-        // No postCommand needed, proceed with Infra creation
+        // No postScript needed, proceed with Infra creation
         proceedWithInfraCreation(createInfraReq, url, username, password);
       }
     }
@@ -1836,7 +1839,7 @@ function templateSettingsHtml(req) {
   const items = [];
   if (req.sgTemplateId) items.push(`SG template: <b>${req.sgTemplateId}</b>`);
   if (req.vNetTemplateId) items.push(`vNet template: <b>${req.vNetTemplateId}</b>`);
-  if (req.postCommands?.length) items.push(`post-deployment commands: <b>${req.postCommands.length} phase(s)</b>`);
+  if (req.postScript?.phases?.length) items.push(`post-deployment script: <b>${req.postScript.phases.length} phase(s)</b>`);
   if (items.length === 0) return '';
   return `<div style="text-align:left;margin-top:10px;font-size:13px;color:#475569;">📋 From template${src ? ` <b>${src.templateId}</b>` : ''}: ${items.join(' · ')}</div>`;
 }
@@ -2033,7 +2036,7 @@ function proceedWithBuildAgnosticImage(createInfraReq, snapshotName, snapshotDes
         <p style="color: #666; font-size: 0.9em;">
           ⏳ This process may take 10-20 minutes<br>
           1️⃣ Creating Infra infrastructure<br>
-          2️⃣ Executing post-deployment commands<br>
+          2️⃣ Running the post-deployment script<br>
           3️⃣ Creating custom snapshots<br>
           4️⃣ Waiting for images to become Available<br>
           ${cleanupInfraAfterSnapshot ? '5️⃣ Cleaning up infrastructure' : '5️⃣ Preserving infrastructure'}

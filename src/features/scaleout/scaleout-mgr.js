@@ -1207,8 +1207,8 @@ function showInfraScaleOutConfiguration(selectedInfraId, namespace, hostname, po
       var config = result.value;
       // Carry the dialog's labels/bootstrap commands into the review + execute steps
       window.pendingNodeGroupLabels = config.labels || {};
-      window.pendingNodeGroupPostCommands = (config.commands && config.commands.length > 0) ? config.commands : null;
-      window.pendingNodeGroupPostCommandPhases = (config.phases && config.phases.length > 0) ? config.phases : null;
+      window.pendingNodeGroupPostScriptCommands = (config.commands && config.commands.length > 0) ? config.commands : null;
+      window.pendingNodeGroupPostScriptPhases = (config.phases && config.phases.length > 0) ? config.phases : null;
       showInfraScaleOutReview(selectedInfraId, config.nodeGroupName, config.ndCount, namespace, hostname, port, username, password);
     } else if (result.dismiss === Swal.DismissReason.cancel) {
       // Go back to Infra selection
@@ -1467,15 +1467,14 @@ function executeInfraScaleOut(namespace, infraId, nodeGroupName, nodeCountPerLoc
 
   // Bootstrap for the newly added nodeGroup (optional; runs on the NEW nodes only).
   // Async so the call returns once the nodes are provisioned.
-  if (window.pendingNodeGroupPostCommandPhases && window.pendingNodeGroupPostCommandPhases.length > 0) {
-    nodeGroupDynamicReq.postCommands = window.pendingNodeGroupPostCommandPhases;
-    nodeGroupDynamicReq.postCommandAsync = true;
-    window.pendingNodeGroupPostCommandPhases = null;
-  } else if (window.pendingNodeGroupPostCommands && window.pendingNodeGroupPostCommands.length > 0) {
-    nodeGroupDynamicReq.postCommands = [{ command: window.pendingNodeGroupPostCommands }];
-    nodeGroupDynamicReq.postCommandAsync = true;
+  if (window.pendingNodeGroupPostScriptPhases && window.pendingNodeGroupPostScriptPhases.length > 0) {
+    nodeGroupDynamicReq.postScript = { phases: window.pendingNodeGroupPostScriptPhases };
+    window.pendingNodeGroupPostScriptPhases = null;
+  } else if (window.pendingNodeGroupPostScriptCommands && window.pendingNodeGroupPostScriptCommands.length > 0) {
+    nodeGroupDynamicReq.postScript = { phases: [{ command: window.pendingNodeGroupPostScriptCommands }] };
   }
-  window.pendingNodeGroupPostCommands = null;
+  window.pendingNodeGroupPostScriptCommands = null;
+  if (nodeGroupDynamicReq.postScript) url += '?postScriptAsync=true';
 
   // Use the first Node configuration from the map as the template
   // In a real scenario, you might want to let users select which configuration to use
