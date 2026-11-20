@@ -572,7 +572,7 @@ function buildInfraNodeSummaryHtml(data) {
   }
 
   // ── Per-NodeGroup sections ─
-  const COL_COUNT = 6;
+  const COL_COUNT = 7;
   const totalNodesInInfra = nodes.length;
   // Threshold to keep DOM lean: for large infras, cap nodes rendered per NodeGroup
   const MAX_RENDER_NODES_PER_GROUP = totalNodesInInfra > 500 ? 5 : (totalNodesInInfra > 100 ? 10 : 50);
@@ -654,6 +654,7 @@ function buildInfraNodeSummaryHtml(data) {
               <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#64748b;">Private IP</th>
               <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#64748b;">CSP Resource ID</th>
               <th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#64748b;">Created</th>
+              <th style="padding:6px 10px;text-align:center;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#64748b;">SSH</th>
             </tr>
           </thead>
           <tbody>`;
@@ -692,6 +693,11 @@ function buildInfraNodeSummaryHtml(data) {
           <td style="padding:7px 10px;font-family:${MONO};font-size:12px;color:#475569;">${esc(nd.privateIP || '—')}</td>
           <td style="padding:7px 10px;font-family:${MONO};font-size:11px;color:#94a3b8;" title="${esc(cspId)}">${esc(cspIdShort)}</td>
           <td style="padding:7px 10px;font-size:12px;color:#94a3b8;font-family:${SANS};">${created}</td>
+          <td style="padding:5px 8px;text-align:center;">
+            <button type="button" onclick="window.openSshTerminal && window.openSshTerminal('${esc(data.id || '')}','${esc(nd.id || '')}')"
+              style="min-inline-size:26px;min-block-size:24px;padding:2px 8px;font-size:11px;font-weight:700;font-family:${MONO};background:#0f172a;color:#38bdf8;border:1px solid #334155;border-radius:5px;cursor:pointer;"
+              title="Open interactive Web SSH terminal to ${esc(nd.id || '')}">&gt;_ SSH</button>
+          </td>
         </tr>`;
 
       // Labels row: only the meaningful keys (role, accelerator) to keep the
@@ -1316,6 +1322,7 @@ function displayAccessInfoGui(data, infraId) {
             <th style="padding:5px 10px;text-align:left;border-bottom:1px solid #2a3a50;">User</th>
             <th style="padding:5px 10px;text-align:left;border-bottom:1px solid #2a3a50;">Port</th>
             <th style="padding:5px 10px;text-align:left;border-bottom:1px solid #2a3a50;">SSH Command (click to copy)</th>
+            <th style="padding:5px 10px;text-align:center;border-bottom:1px solid #2a3a50;">Web SSH</th>
           </tr></thead>
           <tbody>`;
     displayedNodeList.forEach((nd, i) => {
@@ -1345,11 +1352,16 @@ function displayAccessInfoGui(data, infraId) {
               ${esc(sshCmd)}
             </code>
           </td>
+          <td style="padding:5px 8px;text-align:center;">
+            <button type="button" onclick="window.openSshTerminal && window.openSshTerminal('${esc(infraId || data.InfraId || '')}','${esc(nd.nodeId || '')}')"
+              style="min-inline-size:26px;min-block-size:24px;padding:3px 9px;font-size:11px;font-weight:700;font-family:monospace;background:#0284c7;color:#fff;border:none;border-radius:4px;cursor:pointer;"
+              title="Open interactive Web SSH terminal">&gt;_ Terminal</button>
+          </td>
         </tr>`;
     });
     if (nodeList.length > displayedNodeList.length) {
       const remaining = nodeList.length - displayedNodeList.length;
-      html += `<tr style="background:#1a2535;"><td colspan="6" style="padding:6px 10px;text-align:center;color:#9ab;font-size:0.85em;">
+      html += `<tr style="background:#1a2535;"><td colspan="7" style="padding:6px 10px;text-align:center;color:#9ab;font-size:0.85em;">
         Showing first ${displayedNodeList.length} of ${nodeList.length} nodes (⚡ ${remaining} more nodes hidden for performance).
       </td></tr>`;
     }
