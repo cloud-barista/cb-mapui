@@ -34,6 +34,7 @@ import './features/spec/spec-config.js';
 import './features/provision/provision-wizard.js';
 import './features/scaleout/scaleout-mgr.js';
 import './features/remote-command/remote-command.js';
+import './features/ssh-terminal/ssh-terminal.js';
 import './features/snapshots/snapshot-mgr.js';
 import './features/schedule/schedule-mgr.js';
 import './features/tasks/task-mgr.js';

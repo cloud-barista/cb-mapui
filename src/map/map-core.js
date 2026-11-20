@@ -1395,6 +1395,7 @@ function showInfraContextMenu(pixel, infraInfo) {
         <button class="btn btn-success btn-context btn-infra-action" data-action="sshKeys">📦 SSH Keys</button>
 
         <button onclick="executeRemoteCmd(); Swal.close();" class="btn btn-warning btn-context">💻 Remote Cmd</button>
+        <button onclick="openSshTerminal('${infraInfo.name}'); Swal.close();" class="btn btn-dark btn-context">🖥️ SSH Terminal</button>
         <button onclick="showTaskManagementModal(); Swal.close();" class="btn btn-warning btn-context">📋 Cmd Status</button>
         <button onclick="transferFileToInfra(); Swal.close();" class="btn btn-warning btn-context">📁 File Transfer</button>
         <button class="btn btn-warning btn-context btn-infra-action" data-action="dns">🌐 Global DNS</button>

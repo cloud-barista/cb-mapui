@@ -972,9 +972,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
                       🔑 Get Access
                     </button>
                     <div class="dropdown-menu" aria-labelledby="accessDropdown">
+                      <a class="dropdown-item" href="javascript:void(0)" onClick="openSshTerminal();">🖥️ Web SSH Terminal</a>
                       <a class="dropdown-item" href="javascript:void(0)" onClick="getAccessInfo();">Get Access Info</a>
                       <a class="dropdown-item save-file" href="javascript:void(0)">Save SSH Key</a>
                     </div>
+                  </div>
+
+                  <!-- Web SSH Terminal Field -->
+                  <div class="form-group">
+                    <button type="button" id="webSshTerminalBtn" onClick="openSshTerminal();" class="btn btn-dark w-100">
+                      🖥️ Web SSH Terminal</button>
                   </div>
 
                   <!-- Remote Command Field (Warning) -->

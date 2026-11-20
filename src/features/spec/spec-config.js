@@ -917,6 +917,44 @@ function getSpecAvailabilityUiMeta(spec) {
 }
 
 /**
+ * One-line text for a spec's tightest account quota (engine field availabilityQuota).
+ * Returns "" when the CSP did not report a quota to this credential.
+ * @param {Object} quota
+ * @returns {string}
+ */
+function formatSpecQuotaText(quota) {
+  if (!quota || !(quota.limit > 0)) return "";
+  const n = (v) => Number(v).toLocaleString();
+  const usage = (quota.used === undefined || quota.used === null)
+    ? `limit ${n(quota.limit)} ${quota.unit} (usage not reported)`
+    : `${n(quota.used)} / ${n(quota.limit)} ${quota.unit} used`;
+  return `${usage} · up to ${n(quota.fitCount)} more of this spec`;
+}
+
+/**
+ * Hint under the Node Count input: the quota line, turned into a warning when the count does not fit.
+ * @param {Object} quota
+ * @param {number} count
+ * @returns {string}
+ */
+function nodeCountQuotaHintHtml(quota, count) {
+  const text = formatSpecQuotaText(quota);
+  if (!text) return "";
+  const over = count > quota.fitCount;
+  const tail = over ? ` — ${Number(count).toLocaleString()} requested; the rest will fail unless the quota is raised at the CSP` : "";
+  return `<span style="color:${over ? "#d9480f" : "#6c757d"};" title="${esc(`${quota.name || ""} (${quota.scope || ""})`)}">${over ? "⚠️ " : ""}Quota: ${esc(text)}${esc(tail)}</span>`;
+}
+
+// Re-evaluates the hint for the open spec dialog (the quota can arrive after the dialog opened)
+window.updateNodeCountQuotaHint = function (el) {
+  const hint = document.getElementById("ndCountQuotaHint");
+  if (!hint) return;
+  const input = el || document.getElementById("ndCount") || document.getElementById("editVmCount");
+  const quota = window._nodeCountQuotaSpec && window._nodeCountQuotaSpec.availabilityQuota;
+  hint.innerHTML = nodeCountQuotaHintHtml(quota, parseInt(input && input.value, 10) || 1);
+};
+
+/**
  * Render inline Availability & Quota status line for the Selected Spec Details panel.
  * @param {Object} spec
  * @param {number} index
@@ -931,6 +969,7 @@ function renderSpecAvailabilityDetailsCardHtml(spec, index, isChecking = false) 
   const checkedRel = formatAvailabilityRelativeTime(spec && spec.availabilityCheckedAt, false);
   const refreshRel = formatAvailabilityRelativeTime(spec && spec.availabilityRefreshAfter, true);
   const isGpu = spec && (spec.acceleratorType === "gpu" || (spec.acceleratorCount && spec.acceleratorCount > 0));
+  const quotaText = formatSpecQuotaText(spec && spec.availabilityQuota);
 
   const ttlPolicyHint = isGpu
     ? "GPU/Accel TTL Policy — Available: 15m · QuotaExceeded: 3m · SoldOut: 1m · Unsupported: 2h"
@@ -953,6 +992,7 @@ function renderSpecAvailabilityDetailsCardHtml(spec, index, isChecking = false) 
         ${isChecking ? "Checking..." : "Refresh"}
       </button>
       ${reason ? `<div style="margin-top:2px;margin-left:12px;font-size:0.75rem;color:#6c757d;">↳ ${esc(reason)}</div>` : ""}
+      ${quotaText ? `<div style="margin-top:2px;margin-left:12px;font-size:0.75rem;color:#6c757d;" title="${esc(`${spec.availabilityQuota.name || ""} (${spec.availabilityQuota.scope || ""})`)}">↳ Quota: ${esc(quotaText)}</div>` : ""}
     </div>
   `;
 }
@@ -980,6 +1020,7 @@ async function fetchLiveSpecAvailability(spec, forceRefresh = false) {
     spec.availabilityReason = res.data.availabilityReason || "";
     spec.availableZones = res.data.availableZones || [];
     spec.unavailableZones = res.data.unavailableZones || [];
+    spec.availabilityQuota = res.data.availabilityQuota || null;
     spec.availabilityCheckedAt = res.data.availabilityCheckedAt || null;
     spec.availabilityRefreshAfter = res.data.availabilityRefreshAfter || null;
   }
@@ -2235,6 +2276,10 @@ function openNodeGroupConfigModal(selectedSpec, createInfraReqVm, imageSelectHTM
               }
               if (av.queriedAt) selectedSpec.availabilityCheckedAt = av.queriedAt;
               if (av.refreshAfter) selectedSpec.availabilityRefreshAfter = av.refreshAfter;
+              if (av.quota) {
+                selectedSpec.availabilityQuota = av.quota;
+                window.updateNodeCountQuotaHint();
+              }
 
               const avMeta = getSpecAvailabilityUiMeta(selectedSpec);
               const refreshRel = formatAvailabilityRelativeTime(av.refreshAfter, true);
@@ -2612,6 +2657,7 @@ async function selectSpecsForImage(imageId) {
 }
 
 function buildSpecConfigPopupHtml(spec, nodeConf, options = {}) {
+  window._nodeCountQuotaSpec = spec; // read by updateNodeCountQuotaHint while the dialog is open
   const isEdit = options.isEdit || false;
   const imageSelectHTML = options.imageSelectHTML || `<span class="popup-value-sm">${nodeConf.imageId || 'N/A'}</span>`;
   const costPerHour = spec.costPerHour || 'N/A';
@@ -2835,10 +2881,11 @@ function buildSpecConfigPopupHtml(spec, nodeConf, options = {}) {
             <label class="popup-label">Node Count (recommended 1–1000)</label>
             <input type="number" id="${isEdit ? 'editVmCount' : 'ndCount'}" class="popup-input"
                    min="1" value="${nodeConf.nodeGroupSize || '1'}"
-                   oninput="(function(el){var w=document.getElementById('ndCountWarn');if(w)w.style.display=(parseInt(el.value,10)>1000)?'block':'none';})(this)">
+                   oninput="(function(el){var w=document.getElementById('ndCountWarn');if(w)w.style.display=(parseInt(el.value,10)>1000)?'block':'none';window.updateNodeCountQuotaHint(el);})(this)">
             <div id="ndCountWarn" style="display:${(parseInt(nodeConf.nodeGroupSize,10)||1)>1000?'block':'none'};margin-top:4px;font-size:0.78rem;color:#fd7e14;">
               ⚠️ Over 1000 nodes — allowed, but provisioning may be slow or exceed CSP quotas.
             </div>
+            <div id="ndCountQuotaHint" style="margin-top:4px;font-size:0.78rem;">${nodeCountQuotaHintHtml(spec.availabilityQuota, parseInt(nodeConf.nodeGroupSize, 10) || 1)}</div>
           </div>
         </div>
       </div>
